@@ -1,0 +1,462 @@
+print('Testing Lib');
+print('===========');
+
+test_ne_pow := procedure() {
+  assert(ne_pow({1,2}) == {{1}, {2}, {1,2}},
+         "Error: ne_pow is incorrect.");
+  print('[ok] ne_pow');
+};
+test_ne_pow();
+
+test_min := procedure() {
+  assert(min([3,4,5]) == 3, "Error: min is incorrect.");  
+  print('[ok] min');
+};
+test_min();
+
+test_max := procedure() {
+  assert(max([3,4,5]) == 5, "Error: max is incorrect.");  
+  print('[ok] max');
+};
+test_max();
+
+test_avg := procedure() {
+  assert(avg([3,4,5]) == 4, "Error: avg is incorrect.");  
+  print('[ok] avg');
+};
+test_avg();
+
+test_index_of := procedure() {
+  assert(index_of(5, [3,4,5]) == 3, "Error: index_of is incorrect.");  
+  print('[ok] index_of');
+};
+test_index_of();
+
+test_equiv_expr := procedure() {
+  e1 := And('A', 'B');
+  e2 := And('B', 'A');
+  assert(equiv_expr(e1, e2, { 'A', 'B' }), "Error: equiv_expr is incorrect.");
+  print('[ok] equiv_expr: A ^ B == B ^ A');
+  
+  assert(equiv_expr(Exists('x', Odd('x')),
+                    Not(Forall('y', Not(Odd('y')))),
+                    { Odd('a'), Odd('b'), Odd('c') }),
+         "Error: equiv_expr is incorrect.");
+  print('[ok] equiv_expr: Ex Odd(x) == ~( Vy ~Odd(y) )');
+  // print('[ok] expr_to_events');
+};
+test_equiv_expr();
+
+test_maybe_not := procedure() {
+  assert(maybe_not('A', true) == 'A',
+         "Error: maybe_not true is incorrect.");
+  print('[ok] maybe_not true');
+  assert(maybe_not('A', false) == Not('A'),
+         "Error: maybe_not false is incorrect.");
+  print('[ok] maybe_not false');
+};
+test_maybe_not();
+
+test_atomic_exprs := procedure() {
+  assert(atomic_exprs(Exists('x', And('B', Odd('a')))) == { 'x', 'B', 'a' },
+         "Error: atomic_exprs is incorrect.");
+  print('[ok] atomic_exprs');
+};
+test_atomic_exprs();
+
+test_atomic_terms := procedure() {
+  assert(atomic_terms(Exists('x', And('B', Odd('a')))) == { 'B', 'a' },
+         "Error: atomic_terms is incorrect.");
+  print('[ok] atomic_terms');
+};
+test_atomic_terms();
+
+test_func_to_expr := procedure() {
+  assert(func_to_expr({ ['A', true], ['B', false], ['C', false] }) == 
+				 And("A", And(Not("B"), Not("C"))),
+         "Error: func_to_expr is incorrect.");
+  print('[ok] func_to_expr');
+  print('[ok] iter_fct');
+  print('[ok] foldr');
+  print('[ok] fctize');
+};
+test_func_to_expr();
+
+test_atomic_formulas := procedure() {
+  assert(atomic_formulas(Forall('x', Implies(Odd('a'),'B') )) == 
+				 { Odd('a'), 'B' },
+         "Error: atomic_formulas is incorrect.");
+  print('[ok] atomic_formulas');
+  print('[ok] atomic_forms');
+};
+test_atomic_formulas();
+test_atomic_forms := procedure() { test_atomic_formulas(); };
+
+test_expr_to_events := procedure() {
+	assert(expr_to_events(Not('A'), {'A'}) == { { ['A', false] } },
+         "Error: expr_to_events ~A is incorrect.");
+	assert(expr_to_events('A', {'A', 'B' }) == 
+				 { { ['A', true], ['B', false] },
+					 { ['A', true], ['B', true ] } },
+         "Error: expr_to_events A is incorrect.");
+ 	assert(expr_to_events(Implies('A', 'B'), {'A', 'B' }) == 
+				 { { ['A', true ], ['B', true ] },
+				   { ['A', false], ['B', true ] },
+					 { ['A', false], ['B', false] } },
+         "Error: expr_to_events A->B is incorrect.");
+  dom := { 'A', 'B', 'C' };
+  assert(expr_to_events(And('A', 'B'), dom) == 
+				 { { ['A', true], ['B', true], ['C', true ] }, 
+				 	 { ['A', true], ['B', true], ['C', false] }  },
+         "Error: expr_to_events A^B is incorrect.");
+  print('[ok] expr_to_events');
+  print('[  ] more expr_to_events');
+};
+test_expr_to_events();
+
+test_inv := procedure() {
+  assert(inv({ ['a', 1], ['b', 2] }) == { [1, 'a'], [2, 'b'] },
+         "Error: inv is incorrect.");
+  print('[ok] inv');
+};
+test_inv();
+
+test_arity := procedure() {
+  assert(arity('A') == 0 && arity(B()) == 0 && arity(Odd('x')) == 1 && 
+				 arity(GreaterThan('x', 'y')) == 2 && 
+				 arity(Relation('x', 'y', 'z')) == 3,
+         "Error: arity is incorrect.");
+  print('[ok] arity');
+};
+test_arity();
+
+test_flatten := procedure() {
+  assert([1,'a','C'] in flatten({1, 2, 3} >< {'a','b','c'} >< {'A', 'B', 'C'}),
+         "Error: flatten is incorrect.");
+  print('[ok] flatten');
+  print('[ok] flatten_list');
+};
+test_flatten();
+
+test_cart_prod := procedure() {
+  assert([2,'a','B'] in cart_prod([{1, 2, 3}, {'a','b','c'}, {'A', 'B', 'C'}]),
+         "Error: cart_prod is incorrect.");
+  print('[ok] cart_prod');
+};
+test_cart_prod();
+
+test_iter_prod := procedure() {
+  assert([3,2,1] in iter_prod({1,2,3}, 3),
+         "Error: is incorrect.");
+  print('[ok] iter_prod ');
+};
+test_iter_prod();
+
+test_iter_mult := procedure() {
+  assert(iter_mult({ 3, 5, 7 }) == 105,
+         "Error: iter_mult is incorrect.");
+  print('[ok] iter_mult');
+};
+test_iter_mult();
+
+test_choices := procedure() {
+  assert({3,'b','A'} in choices({ {1,2,3}, {'a','b','c'}, {'A','B','C'} }),
+         "Error: is incorrect.");
+  print('[ok] choices ');
+  print('[ok] set_choices ');
+  print('[ok] list_choices ');
+};
+test_choices();
+
+test_function_space := procedure() {
+  dom := { 'a', 'b' };
+  rng := { 1, 2 };
+  assert(function_space(dom, rng) == { {["a", 1], ["b", 1]}, 
+                                       {["a", 1], ["b", 2]}, 
+                                       {["a", 2], ["b", 1]}, 
+                                       {["a", 2], ["b", 2]}
+                                     }, 
+         'Error: function_space is incorrect');
+  print('[ok] function_space');
+};
+test_function_space();
+
+test_possible_states := procedure() {
+  s := { 'a', 'b' };
+  r := { ['a', {0,1}], ['b', {3,4}] };
+  assert(possible_states(s,r) == { {["a", 0], ["b", 3]}, 
+                                   {["a", 0], ["b", 4]}, 
+                                   {["a", 1], ["b", 3]}, 
+                                   {["a", 1], ["b", 4]}
+                                 },
+         'Error: possible_states is incorrect');
+  print('[ok] possible_states');
+};
+test_possible_states();
+
+test_partial_functions := procedure() {
+  f := { [1,2], [2,4] };
+  assert(partial_functions(f) == {{}, {[1, 2]}, {[1, 2], [2, 4]}, {[2, 4]}}, 
+         'Error: partial_functions is incorrect');
+};
+test_partial_functions();
+
+test_compatible_values := procedure() {
+  assert(compatible_values(
+					 { ['A',true], ['B',false] },
+					 { ['C',false], ['B',false] }
+				 ) == true,
+         "Error: compatible_values is incorrect.");
+  assert(compatible_values(
+					 { ['A',true], ['B',false] },
+					 { ['C',false], ['B',true] }
+				 ) == false,
+         "Error: compatible_values is incorrect.");
+  print('[ok] compatible_values');
+};
+test_compatible_values();
+
+test_compatible_complete_states := procedure() {
+  ps := { ['X', true] };
+  cs := possible_states( { 'X', 'Y' }, 
+                         { ['X', {true, false}], 
+                           ['Y', {true, false}]  });
+  assert(compatible_complete_states(ps, cs) == {
+         {["X", true], ["Y", false]}, 
+         {["X", true], ["Y", true]}
+       }, 'Error: compatible_complete_states is incorrect');
+  print('[ok] compatible_complete_states');
+};
+test_compatible_complete_states();
+
+test_proc2func := procedure() {
+  assert(proc2func(procedure(x) { return 2 * x; }, { 1,2,3 }) == 
+				 { [1,2], [2,4], [3,6] },
+         "Error: is incorrect.");
+  print('[ok] proc2func');
+};
+test_proc2func();
+
+test_parse_var := procedure() {
+  assert(parse_var('V_t4') == ['V', 4],
+         "Error: parse_var is incorrect.");
+  print('[ok] parse_var');
+};
+test_parse_var();
+
+test_orig_var := procedure() {
+  assert(orig_var('V_t3') == 'V',
+         "Error: orig_var is incorrect.");
+  print('[ok] orig_var ');
+};
+test_orig_var();
+
+test_var_time := procedure() {
+  assert(var_time('V_t2') == 2,
+         "Error: is incorrect.");
+  print('[ok] var_time');
+};
+test_var_time();
+
+test_assign_time := procedure() {
+  assert(assign_time({ ['A', 		true], ['B', 	  false] }, 4) == 
+										 { ['A_t4', true], ['B_t4', false] },
+         "Error: assign_time is incorrect.");
+  print('[ok] assign_time');
+};
+test_assign_time();
+
+test_drop_time := procedure() {
+  assert(drop_time({ ['A_t3', true], ['B_t3', false] }) == 
+									 { ['A', 	  true], ['B',    false] },
+         "Error: drop_time is incorrect.");
+  print('[ok] drop_time');
+};
+test_drop_time();
+
+/*
+test_is_logical_truth := procedure() {
+  assert(true,
+         "Error: is_logical_truth is incorrect.");
+  print('[  ] is_logical_truth');
+};
+test_is_logical_truth();
+*/
+
+test_parse_vars := procedure() {
+  assert(parse_vars(Forall('x', Exists('y', And(Odd('b'), LessThan('y','a')))))
+				 == { 'x', 'y' },
+         "Error: is incorrect.");
+  print('[ok] parse_vars');
+};
+test_parse_vars();
+
+test_sub := procedure() {
+  assert(sub(Forall('x', Exists('y', And(Odd('b'), LessThan('y','x')))),'x','z')
+				 ==  Forall('z', Exists('y', And(Odd('b'), LessThan('y','z')))),
+         "Error: sub is incorrect.");
+  print('[ok] sub');
+};
+test_sub();
+
+test_subformulas := procedure() {
+  assert(subformulas(Forall('x', Exists('y', And(Odd('b'), LessThan('y','x')))))
+				 == { Odd('b'), LessThan('y','x'), And(Odd('b'), LessThan('y','x')), 
+							Exists('y', And(Odd('b'), LessThan('y','x'))),        
+							Forall('x', Exists('y', And(Odd('b'), LessThan('y','x'))))        
+						},
+				 "Error: subformulas is incorrect.");
+  print('[ok] subformulas');
+};
+test_subformulas();
+
+test_hausdorff_dist := procedure() {
+  assert(hausdorff_dist({1, 8, 17}, {4, 7, 15}, 
+												procedure(x, y) { return (x - y) ** 2; }) == 9,
+         "Error: hausdorff_dist is incorrect.");
+  print('[ok] hausdorff_dist');
+};
+test_hausdorff_dist();
+
+test_kendalls_tau_dist := procedure() {
+	// In actual usage, instead of letters, states/events would be compared.
+	// A > B > C > D
+	u1 := { Succ('A', 'B'), Succ('A', 'C'), Succ('A', 'D'),
+				  Succ('B', 'C'), Succ('B', 'D'),
+					Succ('C', 'D') };
+	// C > A > D > B
+	// Bubble sort: abcd => aCBd => CAbd => caDB	
+	u2 := { Succ('C', 'A'), Succ('C', 'D'), Succ('C', 'B'),
+				  Succ('A', 'D'), Succ('A', 'B'),
+					Succ('D', 'B') };
+  assert(kendalls_tau_dist(u1, u2) == 1/2, // = 3 / (4 * (4-1) / 2)
+         "Error: is incorrect.");
+  print('[ok] kendalls_tau_dist');
+  print('[ok] states_u');
+};
+test_kendalls_tau_dist();
+
+test_atom_u := procedure() {
+  assert(atom_u({ SuccEq({ ['A', true ], ['B', false] }, 
+												 { ['A', false], ['B', false] }) }) == { 'A', 'B' },
+         "Error: atom_u is incorrect.");
+  print('[ok] atom_u');
+};
+test_atom_u();
+
+test_card_u_to_ord_u := procedure() {
+	// In actual usage, instead of letters, states/events would be compared.
+  assert(card_u_to_ord_u({ ['A', 5], ['B', 3], ['C', 3], ['D', 1] }, 
+												 { 'A', 'B', 'C', 'D' }) ==
+				 { SuccEq('A', 'B'), SuccEq('A', 'C'), SuccEq('A', 'D'), 
+				   SuccEq('B', 'C'), SuccEq('B', 'D'),
+				   SuccEq('C', 'B'), SuccEq('C', 'D'),
+					 // reflexive
+					 SuccEq('A', 'A'), SuccEq('B', 'B'), 
+					 SuccEq('C', 'C'), SuccEq('D', 'D')
+				 },
+         "Error: card_u_to_ord_u is incorrect.");
+  print('[ok] card_u_to_ord_u');
+};
+test_card_u_to_ord_u();
+
+test_add_u_to_card_u := procedure() {
+  assert(add_u_to_card_u({ ['A', 3], ['B', 5], ['C', 9], 
+													 [And('A','B'), -2] }) == 
+				 { [{ ['A', false], ['B', false], ['C', false] }, 0],
+				 	 [{ ['A', false], ['B', false], ['C', true ] }, 9],
+				 	 [{ ['A', false], ['B', true ], ['C', false] }, 5],
+				 	 [{ ['A', false], ['B', true ], ['C', true ] }, 14],
+				 	 [{ ['A', true ], ['B', false], ['C', false] }, 3],
+				 	 [{ ['A', true ], ['B', false], ['C', true ] }, 12],
+				 	 [{ ['A', true ], ['B', true ], ['C', false] }, 6],
+				 	 [{ ['A', true ], ['B', true ], ['C', true ] }, 15]
+				 },
+         "Error: add_u_to_card_u is incorrect.");
+  print('[ok] add_u_to_card_u');
+};
+test_add_u_to_card_u();
+
+test_ord_u_dist := procedure() {
+	dom := exprs_to_state_space({ 'A', 'B' });
+	ldom := [ x : x in dom ];
+	u1 := card_u_to_ord_u({ 
+	  [ldom[1], 10], [ldom[2], 7], [ldom[3], 3 ], [ldom[4], 0] 
+	}, dom);
+	u2 := card_u_to_ord_u({ 
+	  [ldom[1], 9], [ldom[2], 1], [ldom[3], 11 ], [ldom[4], 4] 
+	}, dom);
+  assert(ord_u_dist(u1, u2) == 1/2,
+         "Error: ord_u_dist is incorrect.");
+  print('[ok] ord_u_dist');
+  print('[  ] ord_u_dist w/ sharpenings');
+};
+test_ord_u_dist();
+
+test_sort_list := procedure() {
+  less := procedure(x, y) { return x < y; }; 
+  greater := procedure(x, y) { return y < x; }; 
+
+  l := [1,3,5,4,2]; 
+  s1 := sort_list(l, less ); 
+  s2 := sort_list(l, greater); 
+  assert(s1 == [1,2,3,4,5], 'Error: sort_list is incorrect.');
+  assert(s2 == [5,4,3,2,1], 'Error: sort_list is incorrect.');
+  print('[ok] sort_list');
+};
+test_sort_list();
+
+test_sort_list := procedure() {
+  less := procedure(x, y) { return x < y; }; 
+  s := {1,3,5,4,2}; 
+  assert(sort_set(s, less) == [1,2,3,4,5], 'Error: sort_list is incorrect.');
+  print('[ok] sort_set');
+};
+test_sort_list();
+
+test_restrict_domain := procedure() {
+  assert(restrict_domain({ ['a', 1], ['b', 3], ['c', 5] }, {'b', 'c'}) 
+           == { ['b', 3], ['c', 5] },
+         "Error: is incorrect.");
+  print('[ok] restrict_doman');
+};
+test_restrict_domain();
+
+test_restricted_eq := procedure() {
+  assert(restricted_eq({['a', 1], ['b', 2], ['c', 3]}, 
+                                 {['b', 2], ['c', 3]} ) == true,
+         "Error: restricted_eq true is incorrect.");
+  print('[ok] restricted_eq true');
+  assert(restricted_eq({['a', 1], ['b', 2], ['c', 3]}, 
+                                 {['b', 2], ['c', 3], ['d', 4]} ) == false,
+         "Error: restricted_eq false is incorrect.");
+  print('[ok] restricted_eq false');
+};
+test_restricted_eq();
+
+test_range_for_arity := procedure() {
+  poss_sts := possible_states({ 'A', 'B' }, { ['A', tf()], ['B', tf()] });
+  sts := { first(poss_sts), { ['A', true], ['B', false]} }; 
+  assert(sts in range_for_arity(0, poss_sts),
+         "Error: range_for_arity 0 is incorrect.");
+  print('[ok] range_for_arity 0');
+  sts2 := { { ['A', false], ['B', false]}, { ['A', false], ['B', true]} }; 
+  // assert({ [sts], [sts2] } in range_for_arity(1, poss_sts), 
+  //       "Error: range_for_arity 1 is incorrect.");
+  // print('[ok] range_for_arity 1');
+  print('[..] range_for_arity 1');
+  // assert({ [sts, sts2] } in range_for_arity(2, poss_sts),
+  //       "Error: range_for_arity 2 is incorrect.");
+  // print('[ok] range_for_arity 2');
+};
+test_range_for_arity();
+
+test_exprs_to_state_space := procedure() {
+  assert(exprs_to_state_space({ "A", "B", Implies("A", "B"), 
+                                Not(And("A", Not("B"))) }) == { 
+           {['A', false], ['B', false]}, {['A', false], ['B', true]}, 
+           {['A',  true], ['B', false]}, {['A',  true], ['B', true]} 
+         }, "Error: exprs_to_state_space is incorrect.");
+  print('[ok] exprs_to_state_space');
+};
+test_exprs_to_state_space();

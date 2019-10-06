@@ -1,0 +1,779 @@
+dev := false; 
+
+tf := procedure() { return { true, false }; };
+
+// Non-empty powerset. Powerset without the empty set.
+ne_pow := procedure(s) { 
+  return pow(s) - {{}};  
+};
+
+min := procedure(l) {
+	mins := { e : e in l | forall(e2 in [x : x in l | x != e ] | e2 >= e) };
+	return first(mins);
+};
+
+max := procedure(l) {
+	maxs := { e : e in l | forall(e2 in [x : x in l | x != e ] | e >= e2) };
+	return first(maxs);
+};
+
+avg := procedure(l) {
+	return (+/ l)	/ #l;
+};
+
+index_of := procedure(e, xs) {
+  i := 1;
+  while (xs[i] != e) {
+    i := i + 1;
+  }
+  if (xs[i] == e) {
+	  return i;
+  } else {
+  	return om;
+  }
+};
+
+equiv_expr := procedure(e1, e2, dom) {
+  if (dev) { print('equiv_expr dom ' + dom); }
+	if (isList(e1) && !isList(e2) || 
+      isList(e2) && !isList(e1)   ) {
+    return false;
+	} else if (isList(e1)) {
+		return forall(j in [1..#e1] | equiv_expr(e1[j], e2[j], dom) );
+	} else {
+		if (isTerm(e1) && fct(e1) == "BoxArrow") {
+			return isTerm(e2) && fct(e2) == "BoxArrow" && 
+						 equiv_expr(args(e1)[1], args(e2)[1], dom) &&
+						 equiv_expr(args(e1)[2], args(e2)[2], dom);
+		} else {
+			return expr_to_events(e1, dom) == expr_to_events(e2, dom); 
+		}
+	}
+};
+
+// Possible references for arity of expr
+range_for_arity := cachedProcedure(e_arity, poss_sts) { 
+  /* Propositions are sets of possible states. They can also be treated as 
+     objects. You might think of them as the essential realization conditions
+     for objects. */
+  poss_objects := pow(poss_sts);
+  if (e_arity == 0) { 
+    return poss_objects; 
+  /* Wrapping the sngl event below as a list/1-tuple might be a little 
+     counterintuitive but it allows it to be treated consistently with
+     higher arities.  */
+  } else if (e_arity == 1) { 
+    return pow({ [x] : x in poss_objects - {{}} });
+  } else { 
+    return pow(iter_prod(poss_objects - {{}}, e_arity));
+  }
+};
+
+connectives := procedure() {
+  return {'And','Not','Or','Implies','BoxArrow','At_t','Forall','Exists'};
+};
+
+maybe_not := procedure(var, val) {
+	if (val == true) {
+		return var;
+	} else {
+		return Not(var);
+	}
+};
+
+inv_maybe_not := procedure(expr) {
+  if (isTerm(expr) && fct(expr) == "Not") {
+    return { [args(expr)[1], false] };
+  } else {
+    return { [expr,  true] };
+  }
+};
+
+/* Takes an expr and returns the set of vars, atomic propositions and objects
+	 that occur in it.  */
+atomic_exprs := procedure(expr) {
+	if (isTerm(expr)) {
+		return +/ { atomic_exprs(arg_i) : arg_i in args(expr) };
+	} else {
+		return { expr };
+	}
+};
+
+/* Takes an expr and returns the set of atomic propositions and objects
+	 that occur in it (but not its variables).  */
+atomic_terms := procedure(expr) {
+  return atomic_exprs(expr) - parse_vars(expr);
+};
+
+/* Takes a function assigning true or false to vars and turns it into an 
+ 	 expression that is a conjunction of either var or Not(var) depending 
+	 on each variable's truth value.  */
+func_to_expr := procedure(g) {
+  sorted_vs := sort([ v : v in domain(g) ]);
+	return iter_fct("And", [ maybe_not(v, g[v]) : v in sorted_vs ]);
+};
+
+all_atomic_formulas := procedure(exprs) {
+  return +/ { atomic_formulas(expr) : expr in exprs };
+};
+
+atomic_formulas := procedure(expr) {
+  return atomic_forms(expr) - parse_vars(expr);    
+};
+
+atomic_forms := procedure(expr) {
+  if (dev) { print('atomic forms ' + expr); }
+  if (!isTerm(expr) || !(fct(expr) in connectives())) {
+    return { expr };
+  } else {
+    return +/ { atomic_forms(arg_i) : arg_i in args(expr) };
+  }
+};
+
+expr_to_events := procedure(expr, dom) { 
+  state_space := exprs_to_state_space(dom);
+	if (dev) { print('st sp: ' + state_space); }
+  expand := procedure(events) {
+		if (dev) { print('expand ' + events); }
+    return { state : state in state_space 
+             | exists(event in events | restricted_eq(state, event)) };
+  };
+  ete := procedure(expr) {
+    if (dev) { print('ete(' + expr + ')'); }
+		if (isString(expr)) {
+			return { state : state in state_space | state[expr] == true };
+		}
+    if (isTerm(expr)) {
+      if (#args(expr) >= 1) { a1 := args(expr)[1]; }
+      if (#args(expr) >= 2) { a2 := args(expr)[2]; }
+
+      if (!(fct(expr) in connectives())) {  // applied predicate / relation
+        return { [expr, true] };
+      } else if (fct(expr) == "And") {
+				return expand(ete(a1)) * expand(ete(a2));
+				return expand(ete(a1)) * expand(ete(a2));
+        // return { g + h : [g,h] in ete(a1) >< ete(a2) | isMap(g + h) };
+      } else if (fct(expr) == "Or") {
+        return expand(ete(a1)) + expand(ete(a2));
+      // a -> b  ==  ~a v b
+      } else if (fct(expr) == "Implies") {
+        return expand(ete( Or(Not(a1), a2) ));
+      } else if (fct(expr) == "Exists") {
+        // Ex Qx <-> ~ Vx ~Qx
+        return expand(ete( Not( Forall(a1, Not(a2)) ) ));
+      } else if (fct(expr) == "Forall") {
+        terms := { var : var in dom | isString(var) };
+        return { state : state in state_space | 
+          forall(term in terms | is_true_in(sub(a2, a1, term), state, dom)) }; 
+      } else if (fct(expr) == "Not") {
+				if (dev) { print('Not'); }
+        switch {
+          case isString(a1) :
+						if (dev) { print('Not(str)'); }
+            return { {[a1, false]} };
+          // Pair, i.e. { [var, val] }
+          case isSet(a1) && #a1 == 1 && isMap(a1) :
+            return { { [first(a1)[1], !first(a1)[2]] } };
+          case isSet(a1) && isMap(a1) :
+            if (dev) { print('~(a ^ b) = ~a v ~b'); }
+            // ~(a ^ b) = ~a v ~b
+            return +/ { expand(ete(Not({pair}))) : pair in a1 };
+          // Singleton map, eg { g } or { {[x,y],[w,z],...} }
+          case isSet(a1) && #a1 == 1 :
+            if (dev) { print('~ { g } = ~g'); }
+            // ~ { g } = ~g
+            return expand(ete(Not(first(a1))));
+          // Implicit disjunction of maps, eg { g, h, ... }
+          case isSet(a1) :
+            if (dev) { print('~(a v b) = ~a ^ ~b'); }
+            // ~(a v b) = ~a ^ ~b
+            head := first(a1);
+            return expand(ete(  And( Not(head), Not(a1 - {head}) )  ));
+          // Do we allow Not(a[]->b)? How?
+          // case isTerm(a1) && fct(a1) == 'BoxArrow' :
+          default : // e.g. functor term, i.e. predicate or other connective?
+            if (dev) { print('[~a] = [~[a]]'); }
+            // [~a] = [~[a]]
+            return expand(ete(Not( expand(ete(a1)))));
+        }
+      }
+    } else { // not term, atomic expr
+      return ({ [expr, true] });
+    }
+  }; // end ete
+  return expand(ete(expr));
+};
+
+/* https://en.wikipedia.org/wiki/Fold_(higher-order_function)  */
+foldr := procedure(proc, z, l) {
+	if (#l == 0) {
+		return z;
+	} else if (#l == 1) {
+		return proc(l[1], z);
+	} else {
+		return proc(l[1], foldr(proc, z, l[2..]));
+	}
+};
+
+/* Takes a setlx functor and returns a procedure which takes two expressions
+   and if either is om, returns the other, or else constructs a term out of
+   the functor and two expressions.  */
+fctize := procedure(fct) {
+  return procedure(e1, e2) { 
+		if (e1 == om) { return e2; } else if (e2 == om) { return e1; } else {
+			return makeTerm(fct, [e1,e2]); 
+		}
+	};
+};
+
+/* Takes a setlx functor and list of expressions and constructs an expression
+   by repeatedly applying the functor.  */
+iter_fct := procedure(fct, l) {
+	return foldr(fctize(fct), om, l);
+};
+
+/* Takes a function f and returns its inverse. To avoid having to return a set 
+	 or list, it just returns the first preimage that f maps to the img. */
+inv := procedure(f) {
+	return { [img, ([ pre : pre in domain(f) | f[pre] == img])[1] ] : img in range(f) };
+};
+
+/* Takes a setlx functor and returns its arity */
+arity := procedure(fct) {
+	if (isTerm(fct)) {
+		return #args(fct);
+	} else {
+		return 0;
+	}
+};
+
+/* Takes a set like s >< s >< s and returns tuples instead of nested pairs */
+flatten := procedure(set) {
+	return { flatten_list(e) : e in set | isList(e)  } + 
+				 { e 							 : e in set | !isList(e) };
+};
+
+flatten_list := procedure(list) {
+	if (isList(list)) {
+		return +/ [ flatten_list(l) : l in list ];
+	} else {
+		return [list];
+	}
+};
+
+/* Takes a list of sets and returns the set of tuples taking a value from 
+   each set.  */
+cart_prod := procedure(list) {
+  if (#list == 1) {
+    return first(list);
+  } else {
+    return flatten(first(list) >< cart_prod(list[2..]));
+  }
+};
+
+/* Iterated Cartesian Product 
+	 Yields the cartesian product of a set with itself n times.  */
+iter_prod := procedure(set, n) {
+	if (n == 1) {
+		return set;
+	} else {
+		return flatten(iter_prod(set, n - 1) >< set);
+	}
+};
+
+iter_mult := procedure(set) {
+	if (#set == 1) {
+		return first(set);
+	} else {
+		return first(set)	* iter_mult(set - { first(set) });
+	}
+};
+
+/* Takes a set of sets and returns a set of all possible choices taking an 
+	 element from each set. */
+choices := procedure(set) {
+	list := [ [elem : elem in subset] : subset in set ];
+	return set_choices(list);
+};
+
+// Same as list_choices but returns a set rather than list of the choices.
+set_choices := procedure(r) {
+  return { { o : o in p } : p in list_choices(r) };
+};
+
+/* Takes a list of lists and returns a list of all possible choices taking
+   an element from each list  */
+list_choices := procedure(r) {
+  if (#r == 1) {
+    return [[x] : x in r[1]];
+  } else {
+    return +/ [  [[x] + row : row in list_choices(r[2..])]  : x in r[1] ];
+  }
+};
+
+/* Generate the set of all functions from dom to rng. 
+   Generate atomic maps. Collect the choices of those atomic maps. */
+function_space := procedure(dom, rng) {
+  // Collect into a set the elements from a list of choices of atomic maps
+  // p for preimage and permutation? o is ordered pair?
+  return { { o : o in p } : p in list_choices([ [ [p, i] : i in rng ] : p in dom]) };
+};
+
+/* Takes a set of variables s and a function r assigning a set which is the 
+   range of possible values to each variable and returns the set of possible 
+   functions assigning values to those variables.  */
+possible_states := cachedProcedure(s, r) {
+  if (s == {} || r == {}) {
+    return {{}};
+  }
+	return choices({ {v} >< r[v] : v in s }); 
+};
+
+/* Takes a function and returns all partial functions, including empty.  */
+partial_functions := cachedProcedure(f) {
+	return 2 ** f;
+};
+
+/* Takes two functions assigning values to vars and tests whether they are
+	 compatible, i.e. do not assign different values to the same var.  */
+compatible_values := procedure(f, g) {
+	h := f + g;
+	return forall(var in domain(f) + domain(g) | h[var] != om);
+};
+compat := procedure(f, g) { return compatible_values(f, g); }; // alias
+
+/* Takes partial state ps, which is a function assigning values to a set of
+   variables, and set of complete states cs, a set of functions assigning 
+   values to a larger set of variables and returns the subset of cs compatible 
+   with ps.  */
+compatible_complete_states := cachedProcedure(ps, cs) {
+  return { c : c in cs 
+						 | forall(d in domain(ps) | c[d] == ps[d] ) };
+};
+compat_compl_sts := procedure(ps, cs) { // alias 
+  return compatible_complete_states(ps, cs); 
+}; 
+
+proc2func := procedure(p, dom) {
+  return { [d, p(d)] : d in dom };
+};
+
+// Breaks apart a var label of form 'V_ti' into ['V', i]
+parse_var := procedure(label) {
+  j := #label;
+  while (int(label[j]) != om && j != 1) {
+    j -= 1;
+  }
+  t := int(label[(j + 1)..]);
+  assert(t != om, "Error: Expected var label to have time subscript.");
+  var := label[1..(j - 2)];
+  return [var, t];
+};
+
+orig_var := procedure(label) {
+	return parse_var(label)[1];
+};
+
+var_time := procedure(label) {
+	return parse_var(label)[2];
+};
+
+/* Takes an assignment of values to variables and adds a time subscript to the 
+	 variables' labels. */
+assign_time := procedure(g, t) {
+	return { [ y+'_t'+t, g[y] ] : y in domain(g) };
+};
+
+/* Takes an assignment of values to variables and removes time subscripts 
+	 from the variables' labels. */
+drop_time := procedure(g) {
+	return { [ orig_var(y), g[y] ] : y in domain(g) };
+};
+
+/* From Hilbert System, Wikipedia 
+     https://en.wikipedia.org/w/index.php?title=Hilbert_system&oldid=873786806
+*/
+is_logical_truth := procedure(expr) {
+  vars := parse_vars(expr);
+
+  /* Axiom schemes
+     Redundant: 
+       P1: phi -> phi
+       as_p1 := procedure(phi) { return Implies(phi, phi); };  
+      
+     P2: phi -> (psi -> phi)  */
+  as_p2 := procedure(phi, psi) { return Implies(phi, Implies(psi, phi)); };
+  // P3: (phi -> (psi -> xi)) -> ((phi -> psi) -> (phi -> xi))
+  as_p3 := procedure(phi, psi, xi) {
+    return Implies(  
+             Implies(phi, Implies(psi, xi)),
+             Implies(Implies(phi, psi), Implies(phi, xi))
+           );                      
+  };
+  // P4: (~phi -> ~psi) -> (psi -> phi)
+  as_p4 := procedure(phi, psi) {
+    return Implies(Implies(Not(phi), Not(psi)), Implies(psi, phi));
+  };
+  // Q5: Vx(phi) -> phi[x := t] where t may be substituted for x in phi
+  as_q5 := procedure(var, phi) {
+    return { Implies( Forall(var, phi), sub(phi, var, term)) 
+             : term in atomic_terms(expr) };
+  };
+  // Q6: Vx(phi -> psi) -> (Vx(phi) -> Vx(psi))
+  as_q6 := procedure(var, phi, psi) {
+    return Implies( Forall(var, Implies(phi, psi)), 
+                    Implies(Forall(var, phi), Forall(var, psi)) );
+  };
+  // Q7: phi -> Vx phi where x not in phi
+  as_q7 := procedure(phi, var) {
+    if (var in atomic_exprs(phi)) {
+      return {};
+    } else {
+      return { Implies(phi, Forall(var, phi)) };
+    } 
+  };
+  /* Conservative Extensions
+     Conjunction:
+       Introduction: phi -> (psi -> (phi ^ psi))  */
+  conj_intr := procedure(phi, psi) {
+    return Implies(phi, Implies(psi, And(phi, psi)));
+  }; 
+  //   Elimination: (phi ^ psi) -> phi   and   (phi ^ psi) -> psi
+  conj_elim := procedure(phi, psi) {
+    return { Implies(And(phi, psi), phi), 
+             Implies(And(phi, psi), psi) }; 
+  }; 
+  /* Disjunction:
+       Introduction: phi -> (phi v psi)   and   psi -> (phi v psi)  */
+  disj_intr := procedure(phi, psi) {
+    return { Implies(phi, Or(phi, psi)),
+             Implies(psi, Or(phi, psi)) };
+  };   
+  //   Elimination: (phi -> xi) -> ((psi -> xi) -> ((phi v psi) -> xi))
+  disj_elim := procedure(phi, psi, xi) {
+    return Implies( Implies(phi, xi),
+                    Implies( Implies(psi, xi),
+                             Implies( Or(phi, psi), xi)));
+  };    
+  /* Existential Quantification 
+     Introduction: Vx(phi -> Ey(phi[x := y]))  */
+  ex_intr := procedure(phi, x_var, y_var) {
+    return Forall(x_var, Implies(phi, Exists(y_var, sub(phi, x_var, y_var))));
+  };
+  // Elimination: Vx(phi -> psi) -> (Ex(phi) -> psi) where !(x in psi)
+  ex_elim := procedure(phi, psi, var) {
+    if (var in atomic_exprs(psi)) {
+      return {};
+    } else {
+      return { Implies( Forall(var, Implies(phi, psi)),
+                        Implies( Exists(var, phi), psi)) };
+    }
+  };
+  // Modus Ponens Rule of Inference
+  // phi, phi -> psi |- psi
+  modus_ponens := procedure(phi, psi) {
+    if (isTerm(psi) && fct(psi) == 'Implies' && args(psi)[1] == phi) {
+      return { args(psi)[2] };
+    } else {
+      return {};
+    }
+  };
+
+  derive_more := procedure(exprs) {
+    return 
+      (+/ { as_q7(phi, var) : [phi, var] in exprs >< vars }) +
+      (+/ { { as_p2(phi, psi), as_p4(phi, psi), conj_intr(phi, psi) } + 
+              { as_q6(var, phi, psi) : var in vars } +
+              conj_elim(phi, psi) + disj_intr(phi, psi) + modus_ponens(phi, psi)
+            : [phi, psi] in exprs >< exprs }) +
+      { as_p3(phi, psi, xi) : [phi, psi, xi] in iter_prod(exprs, 3) } +
+      (+/ { as_q5(var, phi, vars) : [var, phi] in vars >< exprs }) + 
+      (+/ { ex_elim(phi, psi, var) 
+            : [phi, psi, var] in cart_prod([exprs, exprs, vars]) } ) + 
+      { ex_intr(phi, x_var, y_var) 
+            : [phi, x_var, y_var] in cart_prod([exprs,vars,vars]) };
+  };  
+  derive := procedure(exprs, j) {
+    if (j == 0) {
+      return exprs;
+    } else {
+      return derive_more(derive(exprs, j - 1));
+    }
+  };
+  return expr in derive(subformulas(expr), 10 ** 6);
+};
+
+parse_vars := procedure(expr) {
+  if (isTerm(expr)) {
+    parse_more := +/ { parse_vars(arg) : arg in args(expr) };      
+    if (fct(expr) in {'Forall', 'Exists'}) {
+      return { args(expr)[1] } + parse_more;
+    } else {
+      return parse_more;
+    }
+  } else {
+    return {};      
+  }
+};
+
+/* Substitute any occurrences of var in expr with sub_var instead. */
+sub := procedure(expr, var, sub_var) {
+  if (isTerm(expr)) {
+    return makeTerm(fct(expr), [sub(arg, var, sub_var) : arg in args(expr)]);
+  } else {
+    if (expr == var) {
+      return sub_var;
+    } else {
+      return expr;
+    }
+  }
+};
+
+subformulas := procedure(expr) {
+  if (isTerm(expr) && fct(expr) in connectives()) {
+    return { expr } + (+/ { subformulas(arg) : arg in args(expr) }) 
+									  - parse_vars(expr);
+  } else {
+    return { expr };
+  }
+};
+
+/* Hausdorff Distance
+   "It is the greatest of all the distances from a point in one set to the 
+    closest point in the other set."   
+      -- https://en.wikipedia.org/wiki/Hausdorff_distance 
+*/
+hausdorff_dist := procedure(s1, s2, dist_f) {
+	dist_to_closest := procedure(e1) {
+		return min([ dist_f(e1, e2) : e2 in s2 ]);
+	};
+  return max([ dist_to_closest(e1) : e1 in s1 ]); 
+};
+
+/* Kendalls Tau Distance
+   Takes two strict ordinal utility functions with the same domain and counts 
+	 the number of discordant pairs. Returns a normalized distance from 0 - 1.
+	 Each u1, u2 is a set of setlx functors Succ(state1, state2). (Succ stands 
+	 for succeeds.) States are logical expressions, i.e. setlx functors of 
+	 combinators on string base propositions. 
+
+   "Kendall tau distance is also called bubble-sort distance since it is 
+    equivalent to the number of swaps that the bubble sort algorithm would 
+    take to place one list in the same order as the other list."
+      -- https://en.wikipedia.org/wiki/Kendall_tau_distance  
+*/
+kendalls_tau_dist := procedure(u1, u2) {
+	pairs := { [x,y] : [x,y] in states_u(u1) >< states_u(u1) | x != y };
+	// Discordant (unordered) pairs
+	disc_un_pairs := #{ [x,y] : [x,y] in pairs 
+										  | (Succ(x,y) in u1 && Succ(y,x) in u2) ||
+											  (Succ(x,y) in u2 && Succ(y,x) in u1)    
+									  } / 2;
+	n := #states_u(u1);
+	return disc_un_pairs / (n * (n - 1) / 2);
+};
+
+/* Takes an ordinal utility function expressed as a set of SuccEq setlx
+   functors comparing events or states and returns the set of atomic variables
+   those events or states range over.  */
+atom_u := procedure(u) {
+	states := +/ { { args(pref)[1], args(pref)[2] } : pref in u };
+	return +/ { domain(state) : state in states };
+};
+
+/* Takes an ordinal utility function and returns the states that are compared
+   in them.  */
+states_u := procedure(u) {
+  return +/ { { args(pref)[1], args(pref)[2] } : pref in u };
+};
+
+/* Cardinal Utility Function to Ordinal Utility Function */
+card_u_to_ord_u := procedure(card_u, state_space) {
+	compare_sts := procedure(st1, st2) {
+		if (card_u[st1] >= card_u[st2]) {
+			return SuccEq(st1, st2); // Succeeds or equals
+		} else {
+			return SuccEq(st2, st1);
+		}
+	};
+	return { compare_sts(st1, st2) : [st1,st2] in state_space >< state_space };
+};
+
+/* Additive Utility Function to Cardinal Utility Function: 
+   Takes a utility function expressed as { [expr, val], ... } where the 
+   utility of a state is the sum of all its true exprs' val.
+   Returns a cardinal utility function assigning values to states rather than
+   expressions.
+*/
+add_u_to_card_u := procedure(add_u) {
+  atoms := +/ { atomic_formulas(expr) : expr in domain(add_u) };
+  state_space := exprs_to_state_space(domain(add_u));
+	util := procedure(state) {
+		sum := +/ { val : [expr, val] in add_u | is_true_in(expr, state, atoms) };
+		if (sum == om) { sum := 0; }
+		return sum;
+	};
+  return { [state, util(state)] : state in state_space };
+};
+
+/* Expressions to State Space:
+   Return the possible ways of assigning true or false to each expr in exprs. */
+exprs_to_state_space := procedure(exprs) {
+  if (dev) { print('exprs_to_state_space ' + exprs); }
+  atoms := +/ { atomic_formulas(expr) : expr in exprs };
+	return choices({ {[atom,true], [atom,false]} : atom in atoms });
+};
+
+/* Expression is True in State:
+   Takes an expression and a state, a function assigning true/false to the 
+   atomic terms in expr, and returns true or false for whether the expr
+   is true in the state.
+*/
+is_true_in := procedure(expr, state, dom) {
+  // return state in expr_to_events(expr, dom); // assumes event is state
+  return exists(event in expr_to_events(expr, dom) 
+                | restricted_eq(state, event) );
+};
+
+/* Ordinality Utility Function Distance:
+   Takes two weak ordinal utility functions expressed as a set of SuccEq setlx 
+	 functors and returns the distance between them.
+
+   See hausdorff_dist and kendalls_tau_dist.
+   See also: https://en.wikipedia.org/wiki/Kemeny-Young_method 
+     Interestly, since we read the utility functions off the brains rather
+     than elicit them through votes, we don't need to be concerned with 
+     strategic manipulation through insincere votes.
+*/
+ord_u_dist := procedure(u1, u2) {
+	atom_us := atom_u(u1) + atom_u(u2);
+  state_space := exprs_to_state_space(atom_us);
+  sharpenings := procedure(u) {
+    poss_total_orders := permutations([s : s in state_space]);
+		list_to_ord := procedure(l) {
+			if (l == []) {
+				return {}; 
+			} else {
+				return { Succ(l[1], s) : s in l[2..] } + list_to_ord(l[2..]);
+			}
+		};
+		ord_us := { list_to_ord(pto) : pto in poss_total_orders };
+		ext_u := atom_us - atom_u(u); // extending u vars
+		if (ext_u == {}) {
+			// return { u };
+			exts := {{}};
+		} else {
+			exts := choices({ {[atom,true], [atom,false]} : atom in ext_u });
+		}
+		return { 
+			ord_u : ord_u in ord_us 
+			| forall(pref in u // u: a1 >= a2 
+					| Succ(args(pref)[1], args(pref)[2]) in ord_u || // ord_u: a1 > a2
+						SuccEq(args(pref)[2], args(pref)[1]) in u || // u: a2 >= a1, ie ==
+						forall(ext in exts 
+							| Succ(args(pref)[1] + ext, args(pref)[2] + ext) in ord_u 
+									// a1 + z > a2 + z
+						) // end forall ext
+				) // end forall pref
+		}; // end return
+	}; // end sharpenings	
+	return hausdorff_dist( sharpenings(u1), 
+												 sharpenings(u2), 
+												 kendalls_tau_dist );
+};
+
+/* p 56 of setlx tutorial */
+sort_list := procedure(l, cmp) { 
+  if (#l < 2) { return l; } 
+  m := #l \ 2; 
+  [l1, l2] := [l[.. m], l[m+1 ..]]; 
+  [s1, s2] := [sort_list(l1, cmp), sort_list(l2, cmp)]; 
+  return merge(s1, s2, cmp); 
+}; 
+
+sort_set := procedure(s, cmp) {
+  return sort_list([x : x in s], cmp);
+};
+
+merge := procedure(l1, l2, cmp) { 
+	match ([l1, l2]) { 
+		case [[], _] : return l2; 
+		case [_, []] : return l1; 
+		case [[x1|r1], [x2|r2]] : 
+		if (cmp(x1, x2)) { 
+		  return [x1 | merge(r1, l2, cmp)]; 
+		} else { 
+			return [x2 | merge(l1, r2, cmp)]; 
+		} 
+	} 
+}; 
+
+setlx_chars := procedure() { 
+  str := " !\"#%&'()*+,-./0123456789:;<=>?" + 
+         "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]_" + 
+         "abcdefghijklmnopqrstuvwxyz{|}~";
+  return { str[j] : j in [1..#str] };
+};
+
+all_strs_lte := procedure(s) {
+  poss_strs := {''};
+  length := 0;
+  while (length < #s) {
+    length := length + 1;
+    poss_strs := poss_strs + { poss_str + char : [poss_str, char] in 
+                                                 poss_strs >< setlx_chars() };
+  }
+  return poss_strs;
+};
+
+restrict_domain := procedure(event, vars) {
+  return { [var, val] : [var, val] in event | var in vars };  
+};
+
+restricted_eq := procedure(state, event) {
+  return event == restrict_domain(state, domain(event));
+};
+
+/* Kolmogorov Complexity of a string
+   https://en.wikipedia.org/wiki/Kolmogorov_complexity  
+
+   k is an incomputable function but we include a naive attempt to define it
+   anyway. Although it may seem possible this way, it will not work because
+   eval(poss_str) may not terminate. In practice, some finite approximation
+   could be used. For instance, if setlx allowed us to catch a timeout error
+   as many other languages do, it would be particularly easy by just trying 
+   each program string up to a fixed length of time.
+*/
+k := procedure(s) {
+  poss_strs := {''};
+  success := false;
+  length := 0;
+  while (!success) {
+    length := length + 1;
+    poss_strs := { poss_str + char 
+                   : [poss_str, char] in poss_strs >< setlx_chars() };
+    if (exists(bool in { eval(poss_str) == s : poss_str in poss_strs } | bool) 
+				|| length == #s + 2 )  { // +2 because a str plus quotes encodes itself
+      success := true;
+    }
+  }
+  return length;
+};
+
+/* Conditional Kolmogorov Complexity  K(s|i)  
+   The length of the shortest program which outputs a string s when given the 
+   string i as input. Again, this is incomputable but can be finitely 
+   approximated.
+*/ 
+k_given := procedure(s, i) {
+  eval_str := procedure(str) {
+    try { 
+      return eval(str + '("' + i + '");');
+    } catch(e) {
+      return '';
+    }
+  };  
+  strs := { str : str in all_str_lte(#s + 2) | eval_str(str) == s };
+  strs := sort(strs, procedure(s1, s2) { return #s1 < #s2; });
+  return #strs[1];
+};

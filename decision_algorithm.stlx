@@ -1,0 +1,2395 @@
+class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o, 
+                         cached_f, cached_lf, cached_ref) {
+// Definition and Structure of Decision Algorithms 
+// ===============================================
+
+  i := i; /* Set of input variables (or technically names, ie strings)
+               which are a subset of range(p)
+             e.g. { 'P(I_1)', 'P(I_2)', 'P(I_3)' } 
+             i.e. the agent's sense data. 
+             Generally, p should include it, e.g. { ['I_1', 'P(I_1)'], ... }
+ 	Technical note: There's some abuse of notation here. Each string like 'I_1' 
+  can depending on context be treated as:
+		i) the name of a decision algorithm variable, e.g. as parents() of other 
+       variables. Assignments of value to this variable would be a subjective 
+       probability 0-1. That would form a local/partial decision state, which 
+       could get mapped by an implementation functor f() from a brain state.
+		ii) an individual constant term. A predicate expression in the domain of p 
+        that has this string as an argument would be the prototypical context 
+        illustrating this usage. Semantically, these would refer to the brain 
+        events that implement them.  
+		iii) a couple possibilities for this last option: 
+			a) a 0-ary predicate or sentential expression. It takes no inputs and 
+         forms a proposition on its own. 
+			b) a 1-place predicate that takes the constant in ii and simply asserts 
+         its existence, perhaps loosely inspired by Free Logic's E!. 
+		  In either case, its truth-maker/referent would be the same as option ii's.
+      Treating the string as a sentential expression or forming an expression 
+      with it as the argument of a connective would indicate this usage.  */
+
+  o := o; /* Set of output variables
+             e.g. { 'O_1', 'O_2', 'O_3' }
+             i.e. the agent's motor output. 
+             See also the technical note for i. */
+  
+  /* Function from logical formulas (setlx functors/strings/terms) to 
+       probability variables
+     e.g. { ['A', 'P(A)'], ['B', 'P(B)'], [And('A', 'B'), 'P(A & B)'], 
+            [BoxArrow('A', 'B'), 'P(A []-> B)'] } */
+  p := p; 
+
+  /* Function from ordered pairs [x, y] to conditional probability variables
+     e.g. { [[x, y], 'P(x|y)'], ... } 
+     or more concretely: { [['C', And('A', 'B')], 'P(C|A,B)'], ... } */
+  cp := cp;   
+
+  /* Function from logical formulas to utility variables 
+     e.g. { ['A', 'U(A)'], ... } 
+     u has the same structure as p above */
+  u := u;     
+
+  /* Set of memory variables 
+     This is a catch-all for other cognitive states that don't fit into the 
+     other sets of variables yet may be important to model, e.g. intermediate 
+     states in a calculation performing inference or decision. One can think of
+     it as roughly analogous to a computer's RAM.  */
+  m := m;
+
+  /* Set of memory variables for t_o 
+     Same idea as m above but these only mediate between p + cp + u and o. 
+     This helps ensure it is a genuinely decision algorithmic explanation.  */
+  m2 := m2;
+
+  /* List of accepted norms / higher-order utilities
+     [ n_1, n_2, ... ]
+     each n_i == { ['e', e_n_i], ['m2', m2_n_i], ['o', o_n_i] }
+       e_n_i is a function from logical formulas to evaluation variables
+         e.g. { ['A', 'E_n_i(A)'], ... }
+         They are basically utility function variables but since they are
+         higher-order, i.e. they influence normative judgments or prescriptions
+         rather than motor output, we call them evaluation variables instead
+         when we want to emphasize that they don't directly govern action.
+       m2_n_i is a set of memory variables that only moderate p + e_n_i to 
+         o_n_i
+       o_n_i is a set of output variables that causally influence various u or
+         e_n_j. In simplified models, we can make o_n_i trivially cause u or 
+         e_n_i states by just being identical to them 
+
+     These are essentially decision criteria that govern how we change our
+     preferences or other higher-order norms. The way in which they govern is 
+     analogous and mathematically isomorphic to how first-order utility 
+     functions or preferences govern action. There, beliefs that some motor
+     output would cause some preferred state to be achieved will tend to cause
+     such output and therefore the desired state. In the case of these accepted
+     norms, beliefs that the output variables (which we can also understand as 
+     normative judgments or prescriptions) will cause or constitute a change 
+     in values (which is what the exprs of the domain of e_n_i would refer to) 
+     will tend to cause such outputs and therefore changes in value. 
+
+     It is very important to note that what makes these preferences / utilities 
+     higher-order is their causal or functional roles and not the content of 
+     the expressions associated with the evaluation variables. One can have, in 
+     our sense, first-order preferences which prefer states involving other
+     preferences. Those might be referentially "higher-order" in some sense but 
+     they would still be first-order in our sense so long as they govern
+     actions rather than normative judgments or prescriptions.
+
+		 See http://www.metaethical.ai/norm_descriptivism.pdf for more.
+	*/
+  n := n; 
+
+  // Internal states
+  s := procedure() {
+		if (n == {} || n == [] || n == om) {
+			n_vs := {};
+		} else {
+			n_vs := +/ { range(n_i['e']) + n_i['m2'] + n_i['o'] : n_i in n };
+		}
+    return range(p) + range(cp) + range(u) + m + m2 + n_vs - i;
+  };
+
+  // Function from i + s() + o to ranges of values for those variables
+  r := r;     
+
+  /* Higher order function from a function assigning values to all input and 
+     internal states to a function assigning values to all next internal states 
+		   is -> s
+  */
+  t_s := t_s; 
+
+  /* Higher order function from a function assigning values to all probability 
+     and utility variables as well as m2 to a function assigning values to 
+     outputs 
+			 p u m2 -> o
+	*/
+  t_o := t_o; 
+
+  /* State transitions
+     Returns a higher-order function from functions assigning values to i + s 
+     to functions assigning values to s + o. This is the intuitive combination
+     of t_s and t_o. */
+  t := procedure() {
+    return { [    // a higher-order function which takes 
+              is, // a function assigning values to i + s and returns a function
+							t_s[is] + t_o[just_p_u_m2(is)]
+								  // composed of the union of a func assigning values to s and 
+								  // a func assigning values to o
+             ] : is in domain(t_s) };
+  };
+
+  /* We explicitly cache f after computing it. This allows us to directly set
+     its value when testing or when performing the brute force search would be
+     prohibitively costly.  */
+  cached_f := cached_f;
+  cached_lf := cached_lf;
+
+  /* ns as in the plural of n. 
+     Takes 'e', 'm2' or 'o' and returns the corresponding variables from all n.
+     e.g. ns('e') would return all e_n_i */
+  ns := procedure(str) {
+		if (str == 'e') {
+    	return +/ { range(n_i[str]) : n_i in n };
+		} else {
+    	return +/ { n_i[str] : n_i in n };
+		}
+  };
+
+  p_vars := procedure() {
+    return range(p) + range(cp);
+  };
+
+  p_u_vars := procedure() { 
+    return p_vars() + range(u);     
+  };
+
+	/* Takes a function (is) assigning values to input and internal state vars
+		 and returns its partial function with only vars in p, u and m2  */
+  just_p_u_m2 := procedure(is) {
+    return { [var, val] : [var, val] in is | var in p_u_vars() + m2 };
+  };
+
+// Variable Relationships 
+// ----------------------
+
+  /* Takes a variable and returns its parents, i.e. the variables that 
+     are necessary to determine its next state in the state transition t(). */
+  parents := procedure(y) {
+    result := { z : z in (i + s()) | is_necessary_parent_of(z, y) };
+		return result;
+  };
+
+		is_necessary_parent_of := procedure(z, y) {
+			vs := {v : v in i + s() | v != z}; // all other variables but z
+			f_vs := possible_states(vs, r);
+			bool := exists(f_v in f_vs | vals_diff(f_v, y, z));
+			return bool;
+		};
+
+		/* Check whether there exists an assignment of values to the other 
+			 variables such that there are still different values of y depending 
+			 on values of z.  */
+		vals_diff := procedure(f_v, y, z) {
+			vals := { t_s[ f_v + {[z,r_i]} ][y] : r_i in r[z] };
+			return #vals > 1;
+		};
+
+  // Takes a variable and returns its children
+  children := procedure(y) { 
+    return { v : v in s() + o | y in parents(v) };
+  };
+
+  /* Takes a variable v and a set of variables vs (with v usually in vs)
+     and returns the first ancestors within any given branch of v's ancestors 
+     that are not in vs */  
+  non_shared_ancestors := procedure(v, vs) {
+    result := {};
+    for (parent in parents(v)) {
+      if (parent in vs) {
+        result := result + non_shared_ancestors(parent, vs);
+      } else {
+        result := result + { parent };
+      }
+    } 
+    return result;
+  };
+
+  /* Takes a variable v and a set of variables vs (with v usually in vs)
+     and returns the first descendants within any given branch of v's 
+     descendants that are not in vs */  
+  non_shared_descendants := procedure(v, vs) {
+    result := {};
+    for (child in children(v)) {
+      if (child in vs) {
+        result := result + non_shared_descendants(child, vs);
+      } else {
+        result := result + { child };
+      }
+    } 
+    return result;
+  }; 
+
+
+// Syntax and Implementation
+// =========================
+// See also better_explanation and the section starting with complexity.
+
+  /* Function from a causal_markov_moodel of a brain to an implementation 
+     mapping f which is a higher-order function from a function assigning 
+     states to the brain's variables to a function assigning states to internal 
+     state variables s() meeting certain criteria. 
+  */
+  f := procedure(b) {
+    if (cached_f == om) {
+      cached_f := compute_f(b);
+    }
+    return cached_f;
+  };
+
+  compute_f := cachedProcedure(b) {
+    fs := { pf : pf in possible_fs(b) | commutes(pf, b) };
+    /* Todo: Sort by complexity and return the simplest? 
+       Or also factor in ambitiousness? Coverage of more states?  */
+    if (#fs > 0) {
+      return first(fs); 
+    } else {
+      return {};
+    }
+  };
+
+  /* Function from a causal_markov_model of a brain to the possible 
+     implementation mappings f which map from a function assigning values to 
+     the exogenous and endogenous variables of the causal_markov_model to 
+     functions assigning values to the input, internal state, and output 
+     variables. */
+  possible_fs := procedure(b) {
+    return function_space( b.poss_states(), poss_states() ); 
+  };
+
+  poss_states := cachedProcedure() {
+    return possible_states(i + s() + o, r); 
+  };
+
+  is_implemented_by := procedure(b) {
+    return !(f(b) == {});
+  };
+
+  /* Implementation Functor
+		 ----------------------
+		 Check whether a possible implementation functor pf commutes. See f.
+
+     This basically implements Chalmers' criterion for when some causal system 
+     implements a computation: http://consc.net/papers/rock.html
+
+     In category theory terms, we can say that f is an implementation functor.
+     Given a category of brain states and the causal relations between them
+     and another of decision states and cognitive state transitions between
+     them, f would be a functor mapping i) brain states to decision states and
+     ii) causal transitions to decision state transitions such that it doesn't
+     matter whether one goes from a) a brain state to the brain state it causes 
+     and then to the decision state f maps that brain state to or b) first from 
+		 the same original brain state to the decision state f says it implements 
+		 and then to the next decision state this decision algorithm transitions to. 
+     Either way, you would end up at the same final decision state. 
+	*/
+  commutes := procedure(pf, b) {
+    /*      					 pf
+      bs_{b.uv_t_i-1} ------> ds_iso_t_i-1
+       |                			 |
+       | b.response     			 | restrict_domain
+       |                			 | t()
+       v                			 v
+      bs_{b.v_ti} ----------> ds_so_t_i
+           +u	 pf  restrict_domain
+
+      Roughly check that t( pf ) == pf( b.response ) 
+		*/
+    return forall(bs in domain(pf) | 
+       t()[restrict_domain(pf[bs], i + s())] == 
+       restrict_domain(pf[ 
+         b.response(b.v, bs) + { [u_var, first(b.r[u_var])] : u_var in b.u }
+       ], s() + o)
+     );
+  };
+
+  /* Takes a decision state assigning values to i + s() + o and returns a
+     function assigning values to just s() + o  */
+  drop_i := procedure(ds) {
+    return { [var, val] : [var, val] in ds | !(var in i) };
+  };
+
+  /* Local / partial f
+     Returns a function mapping partial causal states to partial decision states
+     which commutes, i.e. it maps partial causal states to the partial decision 
+     state which is forced by the complete mapping f.  */
+  lf := procedure(b) {
+    if (cached_lf == om) {
+      cached_lf := compute_lf(b);
+    }
+    return cached_lf;
+  };
+
+  compute_lf := cachedProcedure(b) {
+    /* Possible local fs 
+       Function space from union of partial causal states to the union of 
+       partial decision states.  */
+    plfs := function_space(
+      +/ { partial_functions(cs) : cs in b.poss_states() }, // causal states
+      +/ { partial_functions(ds) : ds in poss_states() } // decision states
+    );
+    lfs := [ plf : plf in plfs | lf_commutes(plf, b) ];
+    lfs := sort_list(lfs, procedure(plf1, plf2) { return #plf1 > #plf2; });
+    return lfs[1]; 
+  };
+
+  /* Function from possible local function plf and a causal model of brain b 
+     to boolean value whether it commutes. */
+  lf_commutes := procedure(plf, b) {
+    return forall(pcs in domain(plf) |  // pcs = partial causal state
+      /* The set of complete decision states that is mapped by f from each 
+         complete causal state compatible with the partial causal state is 
+         equal to the set of complete decision states compatible with 
+         the partial decision states mapped by the possible lf from the partial
+         causal state. */
+      { f(b)[ccs] : ccs in compatible_complete_states(pcs, b.poss_states()) } ==
+      compatible_complete_states(plf[pcs], poss_states()) 
+    );
+  };
+
+  /* Local / partial f inverse
+  /* Returns a "function" from local / partial decision states to a set of 
+     local / partial causal states, namely the inverse of lf.  */
+  lf_inv := cachedProcedure(b) {
+    return { [ds, { cs : cs in domain(lf(b)) | lf(b)[cs] == ds} ] : 
+             ds in range(lf(b)) }; 
+  };
+
+  // Helper function. Same as lf_inv but time subscripts are added to the b vars
+  lf_inv_at := procedure(b, t_i) {
+    return { [ds, { assign_time(cs, t_i) : cs in css }] 
+             : [ds, css] in lf_inv(b) };
+  };
+  
+  /* Takes an event in b.cm() and returns the local decision state that the 
+     brain state implements.  */
+  lf_cm := procedure(b, b_event) {
+    return lf(b)[drop_time(b_event)];
+  };
+
+  // Returns the decision state variables implemented by a local brain state.
+  lf_cm_vs := procedure(b, b_event) {
+    d_event := lf_cm(b, b_event); 
+    if (d_event == om) {
+      return {};
+    } else {
+      return domain(d_event);
+    }
+  };
+
+  /* Similar to above but returns the formula in the domain(p) that gets 
+     mapped to the p var.  */
+  lf_cm_p_inv := procedure(b, b_event) {
+    vs := lf_cm_vs(b, b_event);
+    if (#vs == 1) {
+      return p_inv(first(vs));
+    } else { 
+      return om;
+    }
+  };
+
+  plf_to_pf := procedure(b, plf) {
+    /* For each decision state var, construct the function from complete 
+       causal states to the state of that variable. */
+    pf_var := {
+      [var, +/ { { [ccs, pds] 
+                   : ccs in compatible_complete_states(pcs, b.poss_states()) 
+                 } : [pcs, pds] in plf | first(first(pds)) == var }
+      ] : var in i + s() + o
+    };
+    return { [bs, +/ { (pf_var[var])[bs] : var in i + s() + o }] 
+             : bs in b.poss_states() };
+  };
+  
+
+  // This is mostly just checking for syntactic validity or well-formedness.
+  // See also all_lte.
+  is_valid := procedure() {
+    return m2s_are_valid() && no_e_in_u(); 
+  };
+  
+  /* Ensures that m2s merely moderate between p + u and o.
+     I'm no longer sure if this is necessary since we measure and punish 
+     attributing irrationality but it also doesn't seem too bad of a 
+     simplifying assumption for now.  */
+  m2s_are_valid := procedure() {
+    return forall (m2_i in m2 |
+      forall (v in non_shared_ancestors(m2_i, m2) | v in p_u_vars()) &&
+      forall (v in non_shared_descendants(m2_i, m2) | v in o)
+    ) && forall (n_i in n |
+      forall (m2_j_n_i in n_i['m2'] |
+        forall (v in non_shared_ancestors(m2_j_n_i, n_i['m2']) | 
+                v in p_vars() + range(n_i['e']) ) &&
+        forall (v in non_shared_descendants(m2_j_n_i, n_i['m2']) | 
+                v in n_i['o'])
+      )
+    );
+  };
+
+  /* This helps ensure higher-order ambitiousness by preventing the smuggling
+     of evaluation functions within u. For each p expr of the form x []-> y,
+     make sure it does not take the form that x-ing would bring about y which 
+     the agent values (but x is not in the normal outputs o) and this 
+     recognition causes x-ing. If it is of that form, we want a decision 
+     algorithm that includes that explicitly within n.  
+     Todo: Generalize to no_e_in_e and cover more cases, e.g. indirect 
+     reference or equivalent expressions or influencing as grandparents.  */
+  no_e_in_u := procedure() {
+    return forall(expr in domain(p) | fct(expr) != "BoxArrow" || !e_in_u(expr));
+  };
+
+    e_in_u := procedure(expr) {
+      x := args(expr)[1]; // like an n[i]['o']
+      y := args(expr)[2]; 
+      return y in domain(u) && !(x in o) && p[expr] in parents(x);
+    };
+
+// Semantics of Mental Content 
+// ===========================
+
+  /* Takes a set of pairs [w, b] and returns a function from possible worlds 
+     to extensions / referents. 
+       See: https://plato.stanford.edu/entries/two-dimensional-semantics/ 
+  */
+  intension := procedure(poss_wbs) {
+    return { [wb[1], ref(wb[1], wb[2])] : wb in poss_wbs };
+  };
+
+  /* Reference
+		 ---------
+		 Reference function from causal markov model of world w and brain b 
+     to a function which takes a brain and returns its set of truth-makers if 
+     any, i.e. a set of poss events in the world or equivalently, functions
+     assigning values to vars in the world. 
+
+     There are a few ways that reference is grounded.
+
+       1. Input variable states refer to the brain states implementing them.
+          You can think of their content as something like "this sense datum
+          is occurring" or perhaps even as just the pure demonstrative "this".
+          It seems intuitive that these states can represent themselves since
+          everything trivially carries information about itself. 
+
+       2. The meanings of logical connectives (e.g. And, Or, Implies) and the 
+          causal connective BoxArrow are grounded by the axioms that define 
+          them. These meanings are enforced by punishing any attributions of 
+          these connectives into credences that violate their axioms. See 
+          incoherence. Cf inferential / conceptual role semantics:
+						https://plato.stanford.edu/entries/content-narrow/#rol	
+
+       3. The rest can be understood as a kind of ramsification. Other posited 
+          objects/events, predicates and relations refer to those things
+          (if any) which play the roles posited for them. 
+             https://en.wikipedia.org/wiki/Ramsey%E2%80%93Lewis_method
+             http://www.jimpryor.net/teaching/courses/mind/notes/ramseylewis.html
+          We soften the requirement of strict truth by scoring by squared error.
+          This amounts to a principle of charity favoring interpretations
+          that make more beliefs turn out to be true (while also adhering to
+          the constraints above).  
+	*/
+  ref := procedure(w, b) {
+    if (cached_ref == om) {
+      cached_ref := compute_ref(w, b);
+    }
+    return cached_ref;
+  };
+
+  compute_ref := cachedProcedure(w, b) {
+    /* Base expressions are strings or predicates. We'll build composite 
+       expressions together with corresponding references out of combinations of
+       these and logical / causal connectives. */
+    base_exprs := { [expr, e_arity] : [expr, e_arity] in str_exprs() + preds() 
+                                    | !(p[expr] in i) };
+    pbers := poss_base_expr_refs(w, base_exprs); 
+    poss_atom_refs := { i_ref(w, b) + base_ref 
+                        : base_ref in poss_base_refs(w, b, pbers) };
+    poss_refs := [ full_ref(w, b, poss_atom_ref) 
+                   : poss_atom_ref in poss_atom_refs ];
+    return sort_list(poss_refs, less_sq_err)[1];
+  };
+
+    /* Input vars refer to their own brain-state implementors. */
+    i_ref := procedure(w, b) {
+      return { 
+        [b_event, compatible_complete_states(b_event, w.cm().poss_states())] 
+        : b_event in b.actual_sync_events()
+        | #lf_cm(b, b_event) == 1 && lf_cm(b, b_event) in poss_i_events() 
+      };
+    };
+
+    str_exprs := procedure() {
+      return { [expr, 0] : expr in domain(p) 
+                         | !(p[expr] in i) && isString(expr) };
+    };
+
+    preds := procedure() {
+      return { [fct(expr), arity(expr)] 
+               : expr in domain(p) 
+               | isTerm(expr) && !(fct(expr) in connectives()) };
+    };
+
+    // Set of choices of poss assignments of world w states/sets/tuples to expr
+    poss_base_expr_refs := procedure(w, base_exprs) {
+      return choices({ {expr} >< range_for_arity(e_arity, w.cm().poss_states()) 
+                       : [expr, e_arity] in base_exprs });
+    };
+
+    /* Use poss_base_expr_refs to construct poss reference functions assigning
+       reference to brain events rather than exprs.  */
+    poss_base_refs := procedure(w, b, pbers) { 
+      return {
+        +/ { 
+          // For each brain event that represents the given expr
+          // Assign to it the reference of that expr according to pber
+          { [b_event, pber[expr]] : b_event in b.actual_sync_events() 
+                                  | lf_cm_p_inv(b, b_event) == expr } 
+          // Do that for each base expr and collect them into a single function
+          : expr in domain(pber) } 
+        // for each poss base expr reference func
+        : pber in pbers 
+      };
+    };
+
+    // Full Reference
+    // Much of the below builds on fairly standard first-order structures or 
+    // models, e.g., https://en.wikipedia.org/wiki/First-order_logic#Semantics 
+    full_ref := procedure(w, b, atom_ref) {
+      /* Full ref maps each brain event which implements a credence to the 
+         result of reducing the reference of the corresponding expression. */
+      return { [b_event, rr(
+                            lf_cm_p_inv(b, b_event), // expr it is credence in 
+                            [ w, b, atom_ref, 
+                              // vars are all the same time so just take 1st
+                              var_time(first(first(b_event))),
+                              {} ] // empty context
+                         ) ] 
+               : b_event in actual_p_events(b) };
+    }; // end full_ref
+
+      /* Reduce reference, takes an expression and an array of further
+         parameters consisting of a world, brain, atomic reference function, 
+         time and context and returns a set of truth-making w events or the set 
+         of w events the expression is true in. The set of truthmakers is our 
+         way of enforcing a canonical boolean algebraic form. The different 
+         elements act as disjuncts of events and combining assignments of vals 
+         to vars into a map acts as conjunction. It may seem counterintuitive 
+         and take some getting used to but we use this canonical form even when
+         there there is only one disjunct. */
+      rr := procedure(expr, arr) { 
+        w := arr[1]; b := arr[2]; atom_ref := arr[3]; ti := arr[4]; 
+        context := arr[5];  // context is for binding of variables, see Exists
+        if (isTerm(expr)) {
+          if (#args(expr) >= 1) { a1 := args(expr)[1]; }
+          if (#args(expr) >= 2) { a2 := args(expr)[2]; }
+        }
+        switch {
+          case expr in domain(context) :
+            return context[expr];
+          case p[expr] in i :
+            return compatible_complete_states(
+                     first({ b_event : b_event in pow(b.a[ti]) 
+                                     | lf_cm_p_inv(b, b_event) == expr }),
+                     w.cm().poss_states()
+                   );
+          case isString(expr) :
+            return atom_ref[expr];
+          case isSet(expr) :
+            /* This shouldn't happen but just in case, return the set.
+               Maybe throw an error instead? Or it's probably just rr(rr(.. */
+            print('Warning: Expected an expr but received a set: ' + expr);
+            return expr;
+          case fct(expr) == 'At_t' : 
+            if (ti + a2 >= 0) { // a2 should already be negative
+              return rr(a1, [w, b, atom_ref, ti + a2, context]);
+            } else {
+              return {};
+            }
+          case fct(expr) == 'And' :
+						return rr(a1, arr) * rr(a2, arr);
+          case fct(expr) == 'Or' :
+            return rr(a1, arr) + rr(a2, arr);
+          case fct(expr) == 'Not' :
+            if (isSet(a1)) { // Set of states
+              return w.cm().poss_states() - a1;                
+            } else { 
+              // String or functor, i.e. predicate or relation application
+              // [~A] = [~[A]]
+              return rr(Not(rr(a1, arr)), arr);
+            }
+          case fct(expr) == 'Implies' :
+            return rr( Or(Not(a1), a2), arr );
+          case fct(expr) == 'Forall' :
+            // Vx Px = ~Ex ~Px
+            return rr(Not(Exists(a1, Not(a2))), arr);
+          case fct(expr) == 'Exists' :
+            // Set of truth-makers for a2 when any {w_event} is subbed for a1
+            return +/ { rr(a2, [ w, b, atom_ref, ti, 
+                                 context + { [a1, {w_event}] } ]) 
+                        : w_event in range_for_arity(0, w.cm().poss_states()) };
+          case fct(expr) == 'BoxArrow' : // A []-> B, subjunctive conditional
+            // Antecedent
+            if (isSet(a1)) {
+              ant := a1;
+            } else {
+              ant := rr(a1, arr); 
+            }
+            // Consequent
+            if (isSet(a2)) {
+              cons := a2;
+            } else {
+              cons := rr(a2, arr); 
+            }
+            if (#ant > 1) { // Antecedent has disjuncts.
+              // This or that causes the effect if this does or that does.
+              return +/ { rr(BoxArrow(disjunct, cons), arr) : disjunct in ant };
+            } else if (#ant == 1) {
+              if (#cons > 1) {
+                // A thing causes this or that if it causes this or causes that.
+                return +/ { rr(BoxArrow(ant, disjunct), arr) : disjunct in cons };
+              } else if (#cons == 1) {
+                if ( w.cm().response( domain(first(cons)), first(ant) ) == 
+                     first(cons) ) {
+                  /* If this aspect of the causal model is true, it's true in
+                     all states. Fire causes smoke can be true even in a     
+                     possible world where all fire is prevented. A more 
+                     expressive language could substitute a more meaningful 
+                     truthmaker here. */
+                  return w.cm().poss_states();
+                } else {
+                  return {};
+                }
+              } else {
+                // Trivially true because everything causes the empty effect? 
+                return w.cm().poss_states(); 
+              }
+            } else {
+              return {}; // Nothing is caused by nothingness?
+            }
+            return om;
+          default : // Predicate or Relation
+            tuple := [rr(arg, arr) : arg in args(expr)]; 
+            if (tuple in atom_ref[fct(expr)]) {
+              // If a predication is true, it's true in all states.
+              return w.cm().poss_states();  
+            } else {
+              return {};
+            }
+        } // end switch
+      }; // end rr
+
+    less_sq_err := procedure(w, b, ref_1, ref_2) {
+      return sq_err(w, b, ref_1) < sq_err(w, b, ref_2);
+    };
+
+    sq_err := procedure(w, b, ref_i) {
+      return +/ { 
+        ( true_p(w, ref_i, b_event) - first(range(lf_cm(b, b_event))) ) ** 2
+        : b_event in actual_p_events(b) 
+      };
+    };
+
+    true_p := procedure(w, ref_i, b_event) {
+      if (w.actual_state() in ref_i[b_event]) {
+        return 1;
+      } else {
+        return 0;
+      }
+    };
+
+  // Takes an expression (in a world, brain and time) and returns its referent.
+  ref_expr := procedure(w, b, t_i, expr) {
+    p_var := p[expr];
+    ds := f(b)[drop_time(b.a[t_i])]; // decision state
+    p_event := { [p_var, ds[p_var]] };
+    b_event := first( lf_inv_at(b, t_i)[p_event] );
+    return ref(w, b)[b_event];
+  };
+
+  // Returns the brain events that implement a placement of probabibility.
+  actual_p_events := procedure(b) {
+    return { b_event : b_event in b.actual_sync_events() 
+             |      #lf_cm_vs(b, b_event) == 1 &&         // just one var
+               first(lf_cm_vs(b, b_event)) in range(p) }; // and it's a p_var
+  };
+
+  /* Function from causal_markov_model b to a function from times to 
+     probability states, i.e. assignments of values to range(p) + range(cp).
+     At each time, use f(b) to see what decision state it maps the 
+     brain state to and collect the states for range(p) + range(cp). 
+
+     Actual world b.a is a function from times to assignments of values to 
+     variables at that time.
+        e.g. b.a := { [1, assign_time({ [y, true] : y in b.uv() }, 1)], ...} */
+  prob_states := procedure(b) {
+    return { [ti, prob_states_t(b, ti) ] : ti in [1..b.n] };
+  };
+
+	/* Probability States at Time ti 
+		 Takes a brain b at a time ti and returns the decision state that is 
+		 implemented by that brain state but restricted to just the probability 
+		 variables.  */
+  prob_states_t := procedure(b, ti) {
+    bs := { [var, val] : [var, val] in drop_time(b.a[ti]) | var in b.uv() };
+    ds := f(b)[bs];
+    return { [var, val] : [var, val] in ds | var in p_vars() };
+  };
+
+
+// Utility / Evaluation Functions
+// ==============================
+
+  // Collect all utility/evaluation function vars with their output vars
+  eo := procedure() {
+    return {[u, o]} + { [n_i['e'], n_i['o']] : n_i in n };
+  };
+
+  /* Instrumental irrationality, including of evaluation as well as utility 
+     functions. */ 
+  instr_irrat := procedure(w, b) { 
+    return +/ { e_dist(w, b, ti) : ti in [1..(b.n - 1)] } / (b.n - 1);
+  };
+
+    /* Takes a brain b and time ti and returns the distance between the actual 
+       outputs and the optimal outputs according to the utility / evaluation 
+       functions and []-> beliefs.  */
+    e_dist := procedure(w, b, ti) {
+      /* These are all weighted equally right now, but we may want to 
+         consider different weights. Should first-order utility be treated 
+         differently? What about highest order? Does complexity matter?  */
+      return +/ { e_i_dist(w, b, ti, e_i, o_i) : [e_i, o_i] in eo() } / #eo();
+    }; // end e_dist
+
+    // Similar to above but for a specific util/eval function and output vars
+    e_i_dist := procedure(w, b, ti, e_i, o_i) {
+      poss_o_i_states := possible_states(o_i, r);
+      actual_d_st0 := f(b)[ drop_time(b.a[ti]  ) ];
+      actual_d_st1 := f(b)[ drop_time(b.a[ti+1]) ];
+      actual_o_i_state := { [o_i_j, actual_d_st1[o_i_j]] : o_i_j in o_i };
+      sorted_o_i_states := sort_list( [x : x in poss_o_i_states], 
+        procedure(x, y) {
+          return exp_u(w, b, ti, actual_d_st0, e_i, x) > 
+                 exp_u(w, b, ti, actual_d_st0, e_i, y);
+        } );
+      ix := index_of(actual_o_i_state, sorted_o_i_states);
+      /* Cardinal measures seem too easy to abuse so we convert them to an 
+         ordinal measure. */
+      return ix / #sorted_o_i_states;
+    }; // end e_i_dist
+
+    // Expected Utility
+    exp_u := procedure(w, b, ti, actual_d_st, e_i, o_i_state) {
+      /* Using our reference function, find an expression that refers to 
+         the given output state. */             
+      o_expr_b_events := { 
+        b_event : b_event in actual_p_events(b) 
+                | var_time(first(b_event)) == ti &&
+                  ref(w, b)[b_event] != om &&
+                  exists(w_state in ref(w, b)[b_event] |
+                    exists(b_ev in lf_inv(b)[o_i_state] | 
+                      restricted_eq(w_state, assign_time(b_ev, ti+1)) 
+                    )
+                  )
+      };
+      assert(o_expr_b_events != {}, "No o_expr_b_events found");
+      o_expr := lf_cm_p_inv(b, first(o_expr_b_events));
+      // Todo: Handle multiple exprs referring to o_i_state
+      /* Is the above too indirect and complicated? There may be worries of 
+         not capturing the correct mode of presentation? Could we "hardcode"
+         something into the language instead? Like with input vars or
+         memories using At_t. Or the simplest may be to allow it to overlap
+         with input vars. That is actually still allowed by the above. 
+           Is this not so easy though since it needs to refer to a *future* o 
+         state?
+
+         Add up the expectations of utility. Here we are interpreting our   
+         utility vars as additive values. U(x & y) = U(x) + U(y). If, 
+         however, there are exceptions, they can still be encoded by 
+         having a util var associated with the conjunction. Then, if U(x)
+         and U(y) are still defined, you may need to be careful to encode 
+         only the intended difference from additive in the conjunction 
+         rather than doubly counting its full value. 
+           Here, we are assuming the P(o []-> u) beliefs reflect the agent's
+         judgment of overall utility. If the agent is poor at aggregating 
+         utilities, their final judgment might come apart from these 
+         credences. There may also be issues with the timing of these
+         and any aggregated judgments. While this may require much 
+         technical work to thoroughly address, we hope it is at least 
+         conceptually and philosophical clear what is to be done. */
+      return +/ {  actual_d_st[ p[BoxArrow(o_expr, u_expr)] ] // P(o []-> u)
+                 * actual_d_st[e_i_j] : [u_expr, e_i_j] in e_i }; // * u
+    }; // end exp_u
+
+// Probabilistic Coherence 
+// =======================
+
+  incoherence := procedure(b) {
+    /* Synchronic irrationality
+       Avg of distances to the closest coherent probability distribution 
+       at each time normalized by max distance. */
+    sync_irrat := avg({ p_dist(b, ti) / max_p_dist(b, ti) : ti in [1..b.n] });
+    /* Diachronic irrationality
+       Probabilities either stay the same or get updated to be close to what
+       a (locally) ideally rational inference would result in.  */
+    dia_irrat := 1 - p_conn_continuity([ f(b)[drop_time(b.a[ti])] 
+                                         : ti in [1..b.n] ]);
+    return avg([sync_irrat, dia_irrat]);
+  };
+
+  /* Maximum Probability Distance 
+		 Find the probability distribution that is the farthest distance from the 
+		 given brain's probability distribution and return that distance.
+		 This is used to normalize probability distance scores.  */
+  max_p_dist := procedure(b, ti) {
+    poss_p_states := [poss_p : poss_p in possible_states(p_vars(), r)];
+		p_states := prob_states_t(b, ti);
+    farthest_pp := sort_list(poss_p_states, procedure(pp1,pp2) {
+                               return prob_distance(p, cp, p_states, pp1) > 
+                                      prob_distance(p, cp, p_states, pp2);
+                             })[1];    
+		return prob_distance(p, cp, p_states, farthest_pp);
+	};
+ 
+  /* Returns the set of possible causal models formed from the base variables
+     in the domain of p. */
+  poss_cms := procedure() {
+    base_vars := [ p[expr] : expr in domain(p) | 
+                   isString(expr) || (isTerm(expr) && fct(expr) == 'At_t') ];
+    vs := { v : v in base_vars };
+    orderings := permutations(base_vars);
+    return +/ { poss_cms_from_l(l, vs) : l in orderings };
+  };
+
+    poss_cms_from_l := procedure(l, vs) { // l is an ordering (list)
+      // Each var's poss parents are sets containing the preceding vars in l.
+      poss_v_parents := { [l[j], pow({ v : v in l[1..j-1] })] : j in [2..#l] };
+      poss_v_parents[l[1]] := {{}};
+      poss_parents := possible_states(vs, poss_v_parents);
+
+      return +/ { poss_cms_from_p_pars(vs, poss_parents, p_pars) 
+                  : p_pars in poss_parents };
+    };
+
+    /* Given a set of parenthood relations, construct its set of possible 
+       causal models. For each variable, construct the set of possible 
+       functions from its parents. */
+    poss_cms_from_p_pars := procedure(vs, poss_parents, p_pars) {
+      cm_u := { v : v in vs | p_pars[v] == {} };
+      cm_v := vs - cm_u;
+      cm_r := { [v, {true, false}] : v in vs };
+      poss_v_cm_fs := { 
+        [v, function_space(possible_states(p_pars[v], cm_r), {true, false})] 
+        : v in cm_v };
+      poss_cm_fs := possible_states(cm_v, poss_v_cm_fs);
+      return { causal_model(cm_u, cm_v, cm_r, cm_f, om) : cm_f in poss_cm_fs };
+    };
+
+  /* Takes a causal_model and returns a set of coherent probability 
+     distributions compatible with the cm. Each distribution is given by
+     a pair of assignments of values to p and cp.  */
+  coh_pcms := procedure(cm) {
+    // Coherent probability distributions for exogenous variables u
+    coh_u_probs := { p_u : p_u in poss_p_us(cm.u) 
+                         | p_u_is_coherent(p_u, cm.u) };
+    return { [probs(cm, p_u) + subj_conds(cm, p_u), cond_probs(cm, p_u)] 
+             : p_u in coh_u_probs };
+  };
+
+    poss_p_us := procedure(us) {
+      return choices({ {state} >< p_range() : state in state_space(us) });
+    };
+      
+      p_range := procedure() {
+        return r[first(range(p))]; // assume all probs share the same range
+      };
+
+      /* For each prob variable, choose either it being true or false */
+      state_space := procedure(vs) {
+        return choices({ {[v, true], [v, false]} : v in vs });
+      };
+
+    p_u_is_coherent := procedure(p_u, base_vars) {
+      poss_exprs := da().add_up_to(base_vars, 2 ** #base_vars);
+      poss_probs := possible_states(poss_exprs, 
+                                    { [expr, p_range()] : expr in poss_exprs });
+      poss_ord_pairs := poss_exprs >< poss_exprs;
+      poss_cond_probs := possible_states(poss_ord_pairs,
+                                { [pair, p_range()] : pair in poss_ord_pairs });
+      poss_p_cps := poss_probs >< poss_cond_probs;
+      return exists(p_cp in poss_p_cps 
+                    | is_superset_of(p_cp, p_u) && superset_is_coherent(p_cp) );
+    };
+    
+      is_superset_of := procedure(p_cp, p_u) {
+        return { [p_var, p_val] : [p_var, p_val] in p_u | p_val != om } 
+							 < first(p_cp);
+      };
+      
+      superset_is_coherent := procedure(p_cp) {
+        d := decision_algorithm.new();
+        d.p := { [expr, 'P(' + str(expr) + ')'] 
+                 : [expr, p_val] in first(p_cp) };
+        d.cp := { [l, 'P(' + str(l[1]) + '|' + str(l[2]) + ')'] 
+                  : [l, p_val] in last(p_cp) };                
+        pp := { ['P(' + str(expr) + ')',                   p_val] 
+                : [expr, p_val] in first(p_cp) } + 
+              { ['P(' + str(l[1]) + '|' + str(l[2]) + ')', p_val]   
+                : [l, p_val] in last(p_cp) };
+        return d.is_coherent(pp);
+      };
+
+    /* Given p_u, a prob distr over states of the exogenous variables u, use 
+       the causal_model to calculate the probabilities of endogenous vars vs. */
+    probs := procedure(cm, p_u) {
+      // For each state of exogenous vars u, use the causal model to fill in 
+      // what the state of endogenous vars v would be. 
+      p_uv := { [u_state + cm.response(cm.v, u_state), p_val] 
+                : [u_state, p_val] in p_u };
+      // For each poss event of the causal model, turn the event into an expr
+      // and assign it probability equal to the sum of the probabilities of 
+      // uv states in which the event is realized.
+      return { [ func_to_expr(g_vs), 
+                 +/ { p_val : [uv_state, p_val] in p_uv | g_vs < uv_state }]
+               : g_vs in cm.poss_events() };
+    };
+      
+    /* Next we calculate the conditional probabilities for a given p_u */
+    cond_probs := procedure(cm, p_u) {
+      return +/ { calc_cond_prob(g, h) : [g,h] in cm.poss_events() ** 2 };
+    };
+
+      calc_cond_prob := procedure(cm, p_u, g, h) {
+        if (compatible_values(g, h)) {
+          a := func_to_expr(g);
+          b := func_to_expr(h);
+          c := func_to_expr(g + h);
+          /* Using P(A|B) == P(And(A,B)) / P(B)  (Kolmogorov definition) */
+          return { [ cp[[a,b]], probs(cm, p_u)[c] / probs(cm, p_u)[b] ] };
+        } else {
+          return 0;
+        }
+      };
+
+    // Just set to 100% if the subjunctive conditional is true in cm
+    subj_conds := procedure(cm, p_u) {
+      return { [p[BoxArrow(func_to_expr(g), func_to_expr(h))], 1.0] 
+                : [g,h] in cm.poss_events() ** 2 
+                | cm.response(domain(h), g) == h };
+    };
+
+  // Note that the function it returns assigns true/false to prob vars and not
+  // atomic expressions. You may want expr_to_events instead.
+  expr_to_p_funcs := procedure(expr, dom) { 
+    return { { [p[term], bool] : [term, bool] in event } 
+             : event in expr_to_events(expr, dom) };
+  };
+
+  /* Coherent Causal Model Probabilities
+     Coherent probability distributions over p and cp, including the 
+     subjunctive conditionals, which can be seen as pieces of causal models. 
+     We start with probability distributions over all causal models (from
+     the set of base variables in p). Collecting the coherent distributions 
+     over p and cp within each model, we then distribute the probability of
+     the causal model to those distributions and sum them all up again. */
+  coh_cm_ps := procedure() {
+    // Possible probabilities of causal models
+    poss_p_cms := choices({ {poss_cm} >< p_range : poss_cm in poss_cms() }); 
+    /* The probabilities within any distribution must sum to 1. 
+       (Each causal model considered is global and includes all base vars so 
+       there is no worries of overlapping by one cm being a "superset" of 
+       another.) */
+    coh_p_cms := { p_cms : p_cms in poss_p_cms | +/ range(p_cms) == 1.0 };
+
+    // Collect from each coherent probability distribution over causal models
+    // the coherent probability distributions over p and cp that are allowed.
+    return +/ { sum_p_cms(p_cms) : p_cms in coh_p_cms };
+
+    /* Todo: Double-check whether it's necessary to expand the probability 
+       distributions to non-canonical expressions in p? Now that prob_distance
+       handles logical equivalences, it seems unnecessary.  */
+  };
+
+    /* Given a coherent probability distribution over causal models... */
+    sum_p_cms := procedure(p_cms) {
+      /* For each causal model and its probability, collect the possible
+         choices of a coherent probability distribution from each, where
+         those probability distributions have had the probability of the 
+         causal model distributed over them.  */
+      sets_of_p_cps := choices({  
+        { distr_p_cm(p_cp, p_cm) : p_cp in coh_pcms(cm) } 
+        : [cm, p_cm] in p_cms 
+      });
+
+      /* ... For each choice of p_cps from each causal model, sum them up. */
+      return { foldr(add_p_distr, {}, [p_cp : p_cp in p_cps]) 
+               : p_cps in sets_of_p_cps };
+    }; 
+
+      /* Distribute probability of causal model.
+         Takes p_cp, a set of pairs of coherent probability distributions over p
+         and cp, and a probability of the causal model p_cm and then 
+         distributes the probability of the causal model so that the probability
+         of each expression is reduced by multiplying the p_cm. */
+      distr_p_cm := procedure(p_cp, p_cm) {
+        // p_cp == [cm_p, cm_cp]
+        cm_p := p_cp[1];
+        cm_cp := p_cp[2];
+        return [{ [p_var, p_val * p_cm] : [p_var, p_val] in cm_p },
+                { [cp_l, cp_val * p_cm] : [cp_l, cp_val] in cm_cp }];
+      };
+
+      /* Given two pairs of probability distributions over p_vars
+         add up the probabilities of expressions. */
+      add_p_distr := procedure(p_cp1, p_cp2) {
+        p1  := p_cp1[1]; 
+        cp1 := p_cp1[2];
+        p2  := p_cp2[1]; 
+        cp2 := p_cp2[2];
+        return [sum_p(p1, p2), sum_p(cp1, cp2)];
+      }; 
+
+        sum_p := procedure(p1, p2) {
+          /* If one has a variable where the other does not have any variable
+             with an equivalent expression, just go with the probability 
+             defined by the one. */          
+          return { [v1, p1[v1]] : v1 in domain(p1) 
+                   | !exists(v2 in domain(p2) | equiv_p_expr(p, cp, v1, v2)) } +
+                 { [v2, p2[v2]] : v2 in domain(p2) 
+                   | !exists(v1 in domain(p1) | equiv_p_expr(p, cp, v1, v2)) } +
+          /* Otherwise, for any variables that have equivalent expressions,
+             add up the probabilities for those variables. (Since they've 
+             already been reduced in distr_p_cm, we don't need to average 
+             the sum.)  */
+                 +/ { { [v1, p1[v1] + p2[v2]],[v2, p1[v1] + p2[v2]]  } 
+                      : [v1, v2] in domain(p1) >< domain(p2)
+                      | equiv_p_expr(p, cp, v1, v2) };
+        }; 
+
+          equiv_p_expr := procedure(p, cp, v1, v2) {
+            e1 := p_cp_inv(p, cp, v1); 
+            e2 := p_cp_inv(p, cp, v2);
+            return equiv_expr(e1, e2, all_atomic_formulas(domain(p)));
+          };
+
+  /* Takes a brain and time and finds the closest perfectly coherent 
+     probability distribution and returns the distance to it. */
+  p_dist := procedure(b, ti) {
+    p_states := prob_states_t(b, ti);
+    return prob_distance(p, cp, sorted_rat(p_states)[1], p_states);
+  };
+
+  /* Takes a prob state and returns a list of coherent probability 
+     distributions sorted by how close they are p_states, closer ones first. */
+  sorted_rat := procedure(p_states) {
+    return sort_list( [ coh_p + coh_cp : [coh_p, coh_cp] in coh_cm_ps() ],
+      /* A procedure measuring which of two probability states is closer to 
+         the original one given.  */
+      procedure(pp1, pp2) {
+        return prob_distance(p, cp, pp1, p_states) < 
+               prob_distance(p, cp, pp2, p_states);
+      } 
+    );
+  }; 
+
+  /* Takes a p or cp var in range(p) + range(cp) and returns its preimage 
+     formula(s) */
+  p_inv := procedure(v) {
+    if (v in range(p)) { 
+      return inv(p)[v];
+    } else {
+      return inv(cp)[v];
+    }
+  };
+
+  // Same as p_inv but with p and cp explicitly passed in due to setlx bug
+  p_cp_inv := procedure(p, cp, v) {
+    if (v in range(p)) { 
+      return inv(p)[v];
+    } else {
+      return inv(cp)[v];
+    }
+  };
+
+  // Same as p_inv but if in cp, it returns the first expr instead of the pair
+  p_var_inv := procedure(v) {
+    if (v in range(p)) { 
+      return inv(p)[v];
+    } else {
+      return first(inv(cp)[v]);
+    }
+  };
+
+
+  /* Obeys the axioms of probability.
+       See especially p 45 (or 64 in pdf) of E.T. Jaynes, Probability Theory: 
+       The Logic of Science. https://bayes.wustl.edu/etj/prob/book.pdf  */
+  old_is_coherent := procedure(pp) {
+    /* For easier handling, turn domain(p) into a datatype like domain(cp) 
+       so that e.g. P(A) looks more like P(A|om) */
+    force_list := procedure(v) {
+      if (isList(p_inv(v))) {
+        return p_inv(v);
+      } else {
+        return [p_inv(v), om];
+      }
+    };
+    pp := { [force_list(v), num] : [v,num] in pp };
+    obeys_axiom_3 := procedure(l) {
+      if (isTerm(l[1]) && fct(l[1]) == "And") { // [And(a,b), c]
+        [a,b] := args(l[1]);
+        c := l[2];
+        // P(a,b|c) = P(a|b,c) * P(b|c)
+        return pp[l] == pp[ [a, And(b,c)] ] * pp[ [b,c] ];
+      } else {
+        return true;
+      }
+    };
+    return forall(l in domain(pp) | pp[l] >= 0) &&
+           // P(A|x) + P(~A|x) = 1
+           // Todo: Simplify double negation to avoid infinite NOT() regression?
+           forall(l in domain(pp) | pp[l] == 1 - pp[ [Not(l[1]), l[2]] ]) &&
+           forall(l in domain(pp) | obeys_axiom_3(l));
+  }; // end old_is_coherent
+
+  /* From Lasky, Kathryn. "Axiomatic First-Order Probability" 
+     http://ceur-ws.org/Vol-527/paper5.pdf 
+
+      Laskey axioms
+        P1. probabilities are between 0 and 1
+        P2. probabilities in tautologies are 1
+              or just logical truths
+        P3. if probability in two statements both being true are 0, then 
+              probability of one or the other is equal to adding probability 
+              in each
+        P4. Bayesian conditioning
+        P5. interchangeability of logically equivalent statements
+
+     Todo: Double-check if it's necessary to handle undefined/om probability 
+           values. It seems p_u_is_coherent checks its coherence by seeing if
+           a superset is perfectly coherent so I think that strategy should 
+           work. But there may be some slight technical issues making sure 
+           we're allowing or disallowing om in the right places there.
+  */
+  is_coherent := procedure(pp) {
+    pp := { [force_list(v), num] : [v,num] in pp };
+    return forall(l in domain(pp) | 
+      // P1: Probabilities are between 0 and 1.
+      0 <= pp[l] && pp[l] <= 1 &&
+      // P2: Logical truths have probability 1.
+      (!is_logical_truth(l[1]) || pp[l] == 1) &&
+      forall(l2 in domain(pp) | 
+        ( l[2] != l2[2] || (
+          // z is shared in P(_|z) && P(_|z)
+
+          // P3: If P(x^y|z) = 0, then P(x v y|z) = P(x|z) + P(y|z)
+          ( pp[[And(l[1], l2[1]), l[2]]] != 0 || 
+            pp[[ Or(l[1], l2[1]), l[2]]] == pp[l] + pp[l2] ) &&
+
+          // P4: Bayesian conditioning. P(x^y|z) = P(y|z) * P(x|y,z)  
+          ( fct(l[1]) != "And" || !(l2[1] in args(l[1])) ||
+            forall(l3 in domain(p) | 
+              !(l3[1] in args(l[1])) || l3[1] == l2[1] || 
+              l3[2] != And(l2[1], l[2]) || pp[l] == pp[l2] * pp[l3]
+            ) ) &&
+
+          // P5: Interchangeability of equivalent expressions. Part 1
+          //     If x<->y, then Vz P(x|z) = P(y|z) 
+          ( !equiv_expr(l[1], l2[1], atomic_formulas(domain(p))) || 
+            pp[l] == pp[l2] )
+        ) ) /* end || */ && ( 
+          // P5 Part 2: If x <-> y, then Vz P(z|x) = P(z|y) 
+          !equiv_expr(l[2], l2[2], atomic_formulas(domain(p))) || 
+          l[1] != l2[1] || pp[l] == pp[l2]
+        )
+      ) // end forall l2
+    ); // end forall l
+  }; // end is_coherent
+  
+    /* For easier handling, turn domain(p) into a datatype like domain(cp) 
+       so that e.g. P(A) looks more like P(A|om) */
+    force_list := procedure(v) {
+      if (isList(p_inv(v))) {
+        return p_inv(v);
+      } else {
+        return [p_inv(v), om];
+      }
+    };
+  
+  /* Takes two functions mapping p & cp vars to probabilities and computes
+     the difference. See Staffel, Julia. Measuring the Overall Incoherence of 
+     Credence Functions. Synthese, 2015. p. 18. DOI 10.1007/s11229-014-0640-x 
+
+     Technical Note: Takes p and cp (which should just be the usual this.p and 
+     this.cp) but needs to be passed explicitly because of a setlx bug: The 
+     second and subsequent calls to an instance procedure within a nested 
+     procedure is not able to access instance variables / procedures. 
+
+     See ambitiousness for a more general workaround. There and elsewhere we
+     assign *this* (the decision algorithm instance) to *self* and then pass
+     in self as the first parameter. The receiving instance procedure then
+     makes sure to call any instance variables and procedures on self rather 
+     than their implicit and buggy this. The result may be likened to Python's
+     way of handling instance methods.
+  */
+  prob_distance := procedure(p, cp, pp1, pp2) {
+    /* First pass: (but doesn't handle undefineds and logical equivalents)
+    return +/ { abs(pp1[v] - pp2[v]) : v in domain(pp1) | v in domain(pp2) };
+    // Second pass: (but doesn't handle double-counting)
+    return +/ { abs(pp1[v] - pp2[v2]) : [v, v2] in domain(pp1) >< domain(pp2)
+                                      | v == v2 || equiv_p_expr(v, v2) };     
+       Consider three people where the "true" probability is 90%
+         Person 1: A & B 80%, B & A 70%
+         Person 2: A & B 80%
+         Person 3: A & B 80%, B & A 80%
+       Averaging probabilities in logical equivalents favors person 2 and 3 
+       over 1 but not 2 over 3.
+    */
+    return +/ { abs( pp_equiv(p, cp, pp1)[p_class] - 
+                     pp_equiv(p, cp, pp2)[p_class] ) 
+                : p_class in p_equiv_classes(p, cp) 
+                | pp_equiv(p, cp, pp1)[p_class] != om && 
+                  pp_equiv(p, cp, pp2)[p_class] != om };
+  };
+
+    // Equivalence classes of probability variables based on logical equivalence
+    p_equiv_classes := procedure(p, cp) {
+      return { { x : x in range(p) + range(cp) 
+                   | equiv_p_expr(p, cp, p_var, x) }
+               : p_var in range(p) + range(cp) };
+    };
+
+    // Converts a possibility probability distribution pp to one that ranges
+    // over equivalence classes of logically equivalent p vars instead of 
+    // directly over the p vars.
+    pp_equiv := procedure(p, cp, pp) {
+      return { [p_class, avg_p_class(pp, p_class)] 
+               : p_class in p_equiv_classes(p, cp) 
+               | avg_p_class(pp, p_class) != om }; 
+    };
+  
+      // Return the average of the values pp assigns to the p vars in p_subset
+      avg_p_class := procedure(pp, p_subset) {
+        p_vals := [ pp[p_var] : p_var in domain(pp) | p_var in p_subset ];
+        if (#p_vals == 0) {
+          return om;
+        } else {
+          return avg(p_vals); 
+        }
+      };      
+
+// Helpers 
+// -------
+
+  poss_io_states := cachedProcedure() {
+    return possible_states(i + o, r);
+  };
+
+  poss_s_states := cachedProcedure() {
+    return possible_states(s(), r);
+  };
+
+  poss_m_states := cachedProcedure() {
+    return possible_states(m, r);
+  };
+
+  poss_m2_states := cachedProcedure() {
+    return possible_states(m2, r);
+  };
+
+  poss_ms_states := cachedProcedure() {
+    return possible_states(m + m2, r);
+  };
+
+  poss_i_states := cachedProcedure() {
+    return possible_states(i, r);
+  };
+
+  poss_is_states := cachedProcedure() {
+    return possible_states(i + s(), r);
+  };
+
+  poss_o_states := cachedProcedure() {
+    return possible_states(o, r);
+  };
+
+  poss_u_states := cachedProcedure() {
+    return possible_states(range(u), r);
+  };
+
+
+// Best Compression
+// ================
+
+  /* Complexity of Intentional Explanation
+		 -------------------------------------
+     This can be seen as a more realist and more formal version of Dennett's
+     Intentional Stance. 
+       See e.g. https://sites.google.com/site/minddict/intentional-stance-the
+
+     On a first pass, the best intentional explanation can be taken to be the
+     one which best compresses the brain's behavior.
+       See better_explanation for further considerations.
+
+		 Also see https://en.wikipedia.org/wiki/Minimum_description_length:
+			 "The minimum description length (MDL) principle is a formalization of 
+				Occam's razor in which the best hypothesis (a model and its parameters) 
+				for a given set of data is the one that leads to the best compression 
+				of the data." 
+
+		 Since b and d already contain information on their transitions from any 
+     possible state, we don't need to run this for each time step.
+  */
+  complexity := cachedProcedure(b) {
+    // Complexity of b given d and f + Complexity of d and f
+    raw_score := k_given(b.t_to_str(), df_to_str(b)) + k(df_to_str(b));
+    /* Now normalize. Worst case is it doesn't help encode b any better and 
+			 it's just as complex as b. Best case is if it could take 0 bits.  */
+    worst_score := 2 * k(b.t_to_str());
+    return 1 - raw_score / worst_score;
+  };
+
+  to_s := cachedProcedure() {
+    return str([i, p, cp, u, m, m2, n, o, r, t()]);        
+  };
+
+  f_to_s := procedure(b) {
+    return str(f(b));
+  };
+
+  df_to_str := procedure(b) {
+    return to_s() + "@" + f_to_s(b); 
+    // '@' is just a separator, an otherwise unused character
+  };
+ 
+  /* Ambitiousness
+		 -------------
+     If we only optimized for the best compression of the brain, we face the 
+		 following problem. Suppose the syntax we use is somewhat inefficient. 
+     Then, the smallest K(b|df) + K(df) might be produced by an empty d with 
+     all the work being done by a turing machine which generates b using 
+     essentially the same decision algorithm we would have wanted to use as d 
+     but with a more efficient syntax. Or it may only put some into the 
+     official d and sneak in the rest in the turing machine. It seems what
+     we'd need is something like a not-a-decision-algorithmic-explanation
+     predicate to apply to the turing machine. Or we want d to be ambitious, 
+     ideally packing as much of a decision-algorithmic explanation as possible
+     or at least positively weighing its ambitiousness against potential 
+     increases in complexity.
+     
+     For a given d, we consider the auxiliary hypothesis h, which together w/
+     d best explains b. We then look for a decomposition of h into [h_i, h_j] 
+     where [h_i, h_j] is similar to h, and [h_i, h_j] makes d least ambitious, 
+     meaning that the d* which is a superset of d and maximizes coherence and 
+     similarity to d + h_i, improves coherence the least with the greatest 
+     complexity cost. d's ambitiousness in the worst case decomposition is d's 
+     ambitiousness. In other words, the more there is a d* which is highly 
+     similar to d + some h_i and very coherent, the less ambitious d is. It 
+     would leave out too much that could and should be explained using a 
+     decision algorithmic explanation. If d is very ambitious, there's more 
+     like just noise left for the auxiliary hypothesis or you'd have to stray 
+     farther from the auxiliary hypothesis h to subsume it under a decision 
+     algorithmic explanation.
+  */
+  ambitiousness := procedure(b) {
+    poss_hs := all_strs_lte(#b.t_to_str()) >< all_strs_lte(#b.t_to_str());
+    self := this; // workaround for setlx bug described in prob_distance
+    poss_hs := sort_set(poss_hs, 
+      /* Procedure for worse decomposition. Calling it worse rather than
+         better because we want the [h1, h2] which represents the worst case
+         scenario as far as ambitiousness goes.  
+      */
+      procedure(hs_i, hs_j) {
+        return hs_score(self, b, hs_i) > hs_score(self, b, hs_j);
+      });
+    hs := poss_hs[1];
+    return ambitiousness_with_hs(b, hs);
+  };
+
+    hs_score := procedure(self, b, hs_k) {
+      return self.hs_similarity(b, hs_k) - self.ambitiousness_with_hs(b, hs_k);
+    };
+
+    hs_similarity := procedure(b, hs_k) { // hs_k == [h1, h2]
+      return ( k_given(h(b), str(hs_k)) + k_given(str(hs_k), h(b)) ) * -1;
+      // or ** -1 ?
+    };
+
+  // Stringified auxiliary hypothesis which together with d explains b.t_to_str
+  h := procedure(b) {
+    poss_hs := all_strs_lte(#b.t_to_str());
+    self := this; // workaround for setlx bug described in prob_distance
+    poss_hs := sort_set(poss_hs, procedure(h_i, h_j) { // better h explanation
+                 return h_complexity(self, b, h_i) < h_complexity(self, b, h_j);
+               });
+    return poss_hs[1];
+  };
+
+    h_complexity := procedure(self, b, h_k) {
+      return k_given(b.t_to_str(), self.df_to_str(b) + "|" + h_k);
+    };
+
+  ambitiousness_with_hs := procedure(b, hs_k) {
+    poss_d_stars := { poss_d_star : poss_d_star in supersets_lte(b) 
+                      | poss_d_star.is_valid() && 
+                        poss_d_star.is_implemented_by(b) };
+    self := this; // workaround for setlx bug described in prob_distance
+    poss_d_stars := sort_set(poss_d_stars, 
+      procedure(d_star_i, d_star_j) { // better_d_star
+        return d_star_sim(self, b, hs_k, d_star_i) - d_star_i.incoherence(b) > 
+               d_star_sim(self, b, hs_k, d_star_j) - d_star_j.incoherence(b);
+      });
+    d_star := poss_d_stars[1];
+
+    delta_incoh := ( d_star.incoherence(b) - incoherence(b) ) / incoherence(b); 
+    delta_compl := (k(d_star.df_to_str(b)) - k(df_to_str(b))) / k(df_to_str(b));
+    /* More incoherent -> more ambitious
+         because it's like less of real Decision Algorithmic stuff left in h1
+       Larger complexity -> less ambitious 
+         because there's more Decision Algorithmic stuff left in hs_1 & not in d
+         but maybe replace complexity with more like raw size? #states?  */
+    return delta_incoh - delta_compl;
+  };
+
+    d_star_sim := procedure(self, b, hs_k, d_star_k) {
+      raw_sim := (  // roughly, K(d*|d,h1) + K(d,h1|d*_s)
+        k_given( d_star_k.df_to_str(b), self.df_to_str(b) + "|" + hs_k[1]) +
+        k_given( self.df_to_str(b) + "|" + hs_k[1], 
+                 d_star_k.simplest_version(b).df_to_str(b) )
+      );
+      /* Normalize. Best similarity is if 0 extra bits are required. 
+         Worst is K(d*) + K(d); the given bits didn't help at all. */
+      worst_sim := k(d_star_k.df_to_str(b)) + k(self.df_to_str(b));        
+      return 1 - raw_sim / worst_sim;
+    };
+
+  /* Returns decision algorithms with # of possible states <= #b.poss_states
+     which are "supersets" of self. It has additional variables and therefore
+     states, but when considering just the variables shared with self, it is 
+     isomorphic to self.  */
+	supersets_lte := procedure(b) {
+    return { d : d in decision_algorithm.all_lte(#b.poss_states()) 
+               | is_subset_of(d) };
+	};
+
+  // Returns whether this decision algorithm is a "subset" of the given d
+	is_subset_of := procedure(d) {
+		// i, o, p, cp, u, m, m2, n, r, t_s, t_o
+		var_pairs := { [i, d.i], [o, d.o], [p, d.p], [cp, d.cp], 
+									 [u, d.u], [m, d.m], [m2, d.m2] };
+		vars_are_subsets := forall([vs, d_vs] in var_pairs | vs < d_vs);
+		if (!vars_are_subsets || #n > #d.n) { return false; }
+
+		n_are_subsets := forall(j in [1..#n] | 
+                       forall(ltr in {'e','m2','o'} | 
+                         n[j][ltr] < d.n[j][ltr] ));
+		if (!n_are_subsets) { return false; }
+
+		/* For all transitions from a i+s state to a s+o state in self, it is the
+			 case that any transition in d starting from a superset of i+s ends in
+			 a d state that is a superset of the s+o state.  */
+		return forall([is, so] in t() | 
+						 forall(ccs in compatible_complete_states(is, d.poss_is_states()) |
+							 compat(so, d.t()[ccs])
+						 )
+					 );
+	};
+
+  is_simplest_version := procedure(b) {
+    return is_equal_to(simplest_version(b));
+  };
+
+  /* Using simplest_version handles worries with using m as arbitrary data
+		 to smuggle in unlabelled decision algorithmic information. Only the 
+		 decision algorithmic aspects of a decision algorithm should do the 
+		 explaining. This should also handle worries of higher-order utility
+		 information being smuggled in within the memory variables.  */
+  simplest_version := procedure(b) {
+    alt_ds := [ d : d in decision_algorithm.all(b) 
+                	| is_isomorphic_to(d) && d.is_implemented_by(b) ]; 
+    alt_ds := sort_list(alt_ds, decision_algorithm.simpler);
+    return alt_ds[1];
+  };
+
+  is_equal_to := procedure(d) {
+    l1 := [  i,   o,   p,   cp,   u,   m,   m2,   n,   r,   t_s,   t_o];
+    l2 := [d.i, d.o, d.p, d.cp, d.u, d.m, d.m2, d.n, d.r, d.t_s, d.t_o];
+    return l1 == l2;
+  };
+
+  is_isomorphic_to := procedure(d) {
+    /* Everything but the memory variables is the same 
+       And there is an isomorphism between m+m2 states and d.m+d.m2 states
+       Todo: Also add n minus m2s in n to simple equality comparison.
+    */
+    l1 := [  i,   o,   x,   p,   cp,   u,   r,   t_s,   t_o];
+    l2 := [d.i, d.o, d.x, d.p, d.cp, d.u, d.r, d.t_s, d.t_o];
+    return l1 == l2 && exists(fm in possible_fms(d) | fm_commutes(fm, d));
+  };
+  
+    // Todo: Also do higher-order m2s
+    possible_fms := procedure(d) {
+      /* Construct the space of functions from states of m+m2 to d.m+d.m2,
+         respecting the m / m2 boundary */     
+      fm_ms  := { 
+        { [ m_st + m2_st,  fm_m[m_st] + fm_m2[m2_st] ] 
+          : [m_st, m2_st] in poss_m_states() >< poss_m2_states() } 
+        : [fm_m, fm_m2] in 
+          function_space(possible_states(m,  r), possible_states(d.m,  d.r)) >< 
+          function_space(possible_states(m2, r), possible_states(d.m2, d.r))
+      };
+
+      // For convenience map everything else onto its counterpart in d
+      fms := { 
+        { [iso, apply_fm_m(fm_m, iso) ] : iso in possible_states(i+s()+o, r) }
+        : fm_m in fm_ms 
+      };
+      return fms;
+    };
+
+      // Todo: Also do higher-order m2s.
+      apply_fm_m := procedure(fm_m, iso) {
+        iso_m := { [var, val] : [var, val] in iso | var in m || var in m2 };
+        return { [v, iso[v]] : v in i + s() + o - m - m2 } + fm_m[iso_m];
+      };
+
+    fm_commutes := procedure(fm, d) {
+      // Restrict fm to just i + s() variables
+      fm_is := { [{ [var, val] : [var, val] in iso1 | var in i + s() },
+                  { [var, val] : [var, val] in iso2 | var in d.i + d.s() }] 
+                    : [iso1, iso2] in fm };
+      // Restrict fm to just s() + o variables
+      fm_so := { [{ [var, val] : [var, val] in iso1 | var in s() + o },
+                  { [var, val] : [var, val] in iso2 | var in d.s() + d.o }] 
+                    : [iso1, iso2] in fm };
+      return { fm_so[ t()[g_is] ] == t()[ fm_is[g_is] ] : [g_is, h_so] in t() 
+             } == { true };
+    };
+
+// Rationality
+// ===========
+  
+  /* Rational Utility Function
+		 -------------------------
+		 Takes the world w and brain b and collects all possible continuations of
+     brain/decision states using bs_msr_paths. Then it weights them by 
+     agential_identity, optimal_rxs, and subjective likelihood and finds the 
+     center-of-mass / social-choice of the resulting first order utility 
+     functions. 
+
+     This comes out of the metaethical view developed by Howard Nye and June
+     Ku and written up at http://www.metaethical.ai/norm_descriptivism.pdf. 
+     There we focused on the simple case in which the norms we accept or our
+     higher-order preferences formed a hierarchy with a single fundamental norm 
+     or highest-order utility function governing our lower-order norms /
+     functions. (Also see the comments above n := n towards the top.) In that 
+     case, what we have most reason to do would be what that highest order 
+     utility function would prescribe, perhaps through the prescription of 
+     certain lower-level utilty functions.
+
+     Elsewhere, we have acknowledged that things might be more complicated. We 
+     might have a network of accepted norms / higher-order preferences in which 
+     they all influence one another rather than a strict top-down hierarchy.
+     We have suggested that in that case, the weights of each accepted norm and
+     the parameters governing the network behavior could be treated as the 
+     fundamental norm. Developing this further, we might model it as a markov 
+     model with states of norm acceptances influencing other acceptances and 
+     look for a stationary distribution, i.e. an equilibrium state in which the 
+     state it transitions to is the same state it started with. 
+
+     However, even that makes a simplifying assumption that the network 
+     topology of which norms influence which others remains constant. But if 
+     we imagine a brain's behavior in response to varying inputs, it seems
+     likely that sometimes, which higher-order preferences influence which 
+     others would also vary. To handle this, we implement a parliamentary model
+     to aggregate the various influences across different possible 
+     continuations of the agent. 
+       This is inspired by Nick Bostrom and Toby Ord on Parliamentary Models 
+     for Moral Uncertainty. Although it's applied in a different context, it's
+     similar in that both are aggregating many utility functions into one.
+     http://www.overcomingbias.com/2009/01/moral-uncertainty-towards-a-solution.html
+
+     In the end, this does bring us closer to the ideal response / advisor
+     family of metaethical theories but I think our focus on the influence of
+     optimal normative judgments remains distinctive and arguably avoids some
+     worries. We are reading off the first-order utility function from ideal
+     selves rather than the actions so we have less distortion from the 
+     idealization process to worry about since there's less to change. We
+     address remaining worries about distortion with agential identity to 
+     measure how much one remains the same agent. 
+
+     The idealization is mostly done by weighting more heavily selves who are
+     the result of normative judgments that best satisfy the decision criteria
+     governing them. We also incorporate subjective likelihood of the inputs
+     determining possible continuations to factor in normal operating 
+     conditions without letting in external factors and violating supervenience
+     on just the brain.
+  */
+  ruf := procedure(w, b) {
+    t_z := 10 ** 9; // Number of time steps of continuations to consider
+    /* Todo: Find a more principled way
+         * "Ask" each branch how much longer to continue?
+         * Compute infinitely but in a way that asymptotes? 
+         * Keep computing until it converges, with minimum time? 
+             If it never converges? */
+    voter_wts := {};
+    t_i := 1;
+    bs1 := drop_time(b.a[b.n]);
+    while (t_i <= t_z) {
+      bmps := bs_msr_paths(w, b, bs1, t_i);
+      voter_wts := voter_wts + { 
+        [ additive_to_ordinal(f(b)[first(last(bmp))], 0), // voter util func
+          time_wt(t_i) * voter_weight(w, b, bmp) ]        // voter weight
+        : bmp in last(bmps) 
+      };
+      t_i := t_i + 1;
+    }
+    // Poss social choice utility functions
+    psc_u_dom := domain(p) + domain(u);
+    psc_u_rng := r[first(range(u))] + { om };
+    psc_us := choices({ { [expr, r_i] : r_i in psc_u_rng } 
+                        : expr in psc_u_dom });
+    psc_us := { { [expr, r_i] : [expr, r_i] in psc_u | r_i != om } 
+                : psc_u in psc_us }; // filter out om
+    return sort_set(psc_us, 
+                    procedure(psc_u1, psc_u2) { 
+                      return rat_psc_dist(voter_wts, psc_u1) < 
+                             rat_psc_dist(voter_wts, psc_u2); 
+                    })[1];
+  };
+
+    time_wt := procedure(t_i) { return 1; }; // Placeholder constant function
+
+    voter_weight := procedure(w, b, bmp) {
+      msr := last(last(bmp));
+      bss := [ bs : [bs, msr] in bmp ]; // Brain StateS
+
+      cached_ref := om;
+      wb := new_wb(w, b, bss);
+      w2 := first(wb);
+      b2 := last(wb);
+      
+      dss := [ f(b2)[bs] : bs in bss ];
+      agential_id := agential_identity(dss, w2, b2);
+      return msr * agential_id * optimal_rxs(w2, b2, dss);
+    };
+
+    // Possible Social Choice for Rationality (as opposed to in optimal_rxs)
+    rat_psc_dist := procedure(voter_wts, psc_u) { 
+			ord_u := card_u_to_ord_u( add_u_to_card_u(psc_u) );
+			return +/ { voter_wts[voter] * ord_u_dist(voter, ord_u) ** 2
+      						: voter in domain(voter_wts) };
+    };
+
+  new_wb := procedure(w, b, bss) {
+    b2   := b;
+    b2.a := b2.a + [assign_time(bss[t_j], b.n + t_j) : t_j in [1..#bss]];
+    b2.n := #(b2.a);
+
+    w2   := w; 
+    w2.a := w2.a + [assign_time(bss[t_j], b.n + t_j) : t_j in [1..#bss]];
+    w2.n := #(w2.a);
+
+    return [w, b];
+  };
+
+  /* Optimal Normative Judgments / Prescriptions
+		 -------------------------------------------
+     Returns a score for how much the list of decision states has had outputs
+     of higher-order utility functions (i.e. normative judgments / 
+     prescriptions) that maximized higher-order utility. If the state space
+     of prescriptions (n[j]['o']) overlap, we favor those states voted for by 
+     more accepted norms through a synchronic social choice function.
+	*/ 
+  optimal_rxs := procedure(w, b, dss) {
+    opts := [ optimality(w, b, dss[j], dss[j+1], b.n - (#dss - j) ) 
+              : j in [1..(#dss - 1)] ];
+    return 0.5 * min(opts) + 0.5 * avg(opts);
+  }; 
+
+    optimality := procedure(w, b, ds, ds2, t_i) {
+      ord_us := { additive_to_ordinal(ds, j) : j in [1..#n] };
+
+      /* Social choice to balance multiple synchronic utility functions if
+         they conflict.  */
+      psc_base_exprs := +/ { ue_base_exprs(j) : j in [1..#n] };
+      psc_state_space := choices({ {[subform, true], [subform, false]} 
+                                   : subform in psc_base_exprs });
+      sync_psc_us := choices({ { [state, r_i] : r_i in r[first(range(u))] } 
+                               : state in psc_state_space });
+      sc_u := sort_set(psc_us, 
+                       procedure(psc_u1, psc_u2) { 
+                         return sync_psc_dist(ord_us, psc_u1) < 
+                                sync_psc_dist(ord_us, psc_u2); 
+                       })[1];
+
+      n_o_vars := +/ { n_i['o'] : n_i in n }; // Prescription vars
+      // Observed state of those vars in ds2
+      obs_rxs := { [n_o_var, ds2[n_o_var]] : n_o_var in n_o_vars };
+
+      // Collect all possible prescriptions along with their (higher) utilities.
+      util_rxs := { 
+        [rxs, util_of_rxs(w, b, t_i, ds, ds2, psc_base_exprs, sc_u, rxs)] 
+        : rxs in poss_rx_states() 
+      };
+      // Sort them by optimality.
+      util_rxs := sort_set(util_rxs, procedure(rxs_u1, rxs_u2) { 
+                                       return last(rxs_u1) > last(rxs_u2); 
+                                     });
+      // Return a normalized score for the obs_rxs by their percentile rank.
+      return 1 - index_of(
+				[ obs_rxs, 
+          util_of_rxs(w, b, t_i, ds, ds2, psc_base_exprs, sc_u, obs_rxs) ], 
+        util_rxs
+			) / #util_rxs;
+    }; // end optimality
+
+      sync_psc_dist := procedure(ord_us, sync_psc_u) { 
+				ord_psc_u := card_u_to_ord_u(sync_psc_u);
+        return +/ { ord_u_dist(ord_u, ord_psc_u) ** 2 : ord_u in ord_us };
+      };
+
+      util_of_rxs := procedure(w, b, t_i, ds, ds2, psc_base_exprs, sc_u, rxs) {
+        /* For the sake of simplicity, we assume that higher-order utilities 
+           depend on only intrinsic properties of brains / decision algorithms.
+           This means that being given the future brain states bss is 
+           sufficient to tell us the utility of various prescriptions under 
+           this assumed future. This assumption can be quite plausible for 
+           higher-order utilities that enforce consistency, coherence or some
+           form of reflective equilibrium. If we abandon this assumption, we
+           may need to model a set of possible worlds and a probability 
+           distribution or measure over them.
+
+           We might typically expect higher-order utilities to be placed in 
+           some change in lower-order utility and then a recognition that some
+           prescription would more-or-less immediately cause that change would 
+           cause the prescription and in turn, the intended change. But since
+           we can neither assume that the higher-order utility is placed in 
+           a specific, concrete lower-order utility change in the near future as
+           opposed to more open-ended properties nor assume the immediacy of the
+           prescription's causation of a lower-order utility change, we just 
+           look very far into the future and sum up the utility of any events 
+           in that 4-dimensional space-time block that would be included in the
+           reference of higher-order utility expressions. Since the network
+           topology of the higher-order utility functions may be path dependent,
+           we also use the bs_msr_paths to aggregate over the different futures
+           made possible by various input states weighted by their subjective
+           likelihood.
+        */
+        new_ds2 := rxs + { [var, val] : [var, val] in ds2 
+                                      | !(var in domain(rxs)) };
+        bs := inv(f(b))[new_ds2];
+        bmps := bs_msr_paths(w, b, bs, 10 ** 9);
+        future_wts := {                      // collect a ... 
+          [ [first(bs_msr) : bs_msr in bmp], // list of brain states, bss,
+            last(last(bmp)) ]                // & measure from the final state
+          : bmp in last(bmps)                // for each bs_msr_path
+        }; // to get { [bss, msr], ... }
+    
+        return +/ { 
+          msr * util_of_future(w, b, t_i, ds, psc_base_exprs, sc_u, bss) 
+          : [bss, msr] in future_wts 
+        };
+      }; // end util_of_rxs
+
+        util_of_future := procedure(w, b, t_i, ds, psc_base_exprs, sc_u, bss) {
+          wb := new_wb(w, b, bss);
+          w2 := first(wb);
+          b2 := last(wb);
+          
+          future_state := { [expr, eval_expr(w2, b2, t_i, ds, bss, expr)] 
+                            : expr in psc_base_exprs };
+          return sc_u[future_state];
+        };
+  
+        // Returns a boolean for whether the expr is true in that future
+        eval_expr := procedure(w, b, t_i, ds, bss, expr) {
+          p_var := p[expr];
+          p_event := { [p_var, ds[p_var]] };
+          b_event := first( lf_inv_at(b,t_i)[p_event] );
+          ref_b_event := ref(w,b)[b_event];
+          disjuncts := { restricted_eq(w.actual_state(), disjunct) 
+                         : disjunct in ref_b_event };
+          return #{ disj : disj in disjuncts | disj == true } > 0;
+        };
+
+  /* Extensional rational utility */
+  ext_ruf := procedure(w, b) {
+    uf := ruf(w,b); 
+		// Map expressions to their referents.
+    expr_ref := { [expr, ref_expr(w, b, b.n, expr)] : [expr, r_i] in uf };
+		// Map every possible world state to its utility.
+    return { [w_state, w_util(uf, expr_ref, w_state)] 
+             : w_state in w.cm().poss_states() };
+  };
+
+    w_util := procedure(uf, expr_ref, w_state) {
+      /* Truths, or utility relevant truths, I suppose. Collect the expressions 
+         in the rational utility function that had this w_state among its set of
+         truthmakers / referents.  */
+      truths := { expr : expr in domain(expr_ref) | w_state in expr_ref[expr] };
+			// Sum the utilities 
+			return +/ { uf[expr] : expr in truths };
+    };
+ 
+  /* Agential Identity
+		 -----------------
+		 Agential Identity is much like Personal Identity a la Derek Parfit's 
+     Reasons and Persons. But where personal identity roughly concerns when 
+     someone is the same person for the purposes of care, agential identity
+     concerns when someone is the same agent for purposes of trusting their
+     normative judgments. 
+
+     If we are thinking in terms of ideal advisor / observer theories, we might
+     be considering hypothetical versions of ourselves with more information 
+     or other qualities. But consider the full knowledge of what heroin feels 
+     like. If we had that information, we might become addicts and change our 
+     values. But this probably isn't a change that would make us want to defer
+     to that self's values. We may protest that something in the process of
+     adding this knowledge has changed our values, not illuminated them.
+     
+     The concept of agential identity is meant to measure how much other 
+     possible selves truly reflect *our* values and agency. Generally, this 
+     will be measured either by similarity to our current selves or by
+     identifying the changes as cognitive changes made through inference or
+     applying higher-order decision criteria to values. 
+  */
+  agential_identity := procedure(dss, w, b) { // dss : list of decision states
+    return 0.5 * agential_continuity(dss, w, b) + 
+           // kinda like: 0.5 * agential_connection(dss[1], {}, dss[#dss])
+           0.5 * (0.5 * p_conn(dss[1], last(dss)) + 
+                  0.5 * u_conn(dss[1], {}, last(#dss)));
+  };
+  agential_continuity := procedure(dss, w, b) {
+    conns := [agential_connection(dss[j], dss[j+1], dss[j+2], w, b, j) 
+              : j in [1..(#dss - 2)] ];
+    return 0.5 * min(conns) + 0.5 * avg(conns);
+  };
+  agential_connection := procedure(ds1, ds2, ds3, w, b, t_i) {
+    return 0.5 * avg([p_conn(ds1, ds2), p_conn(ds2, ds3)]) + 
+           0.5 * u_conn(ds1, ds2, ds3, w, b, t_i);
+  };
+  /* Agential continuity restricted to p_conn.
+     Used for measuring diachronic rationality in incoherence. */
+  p_conn_continuity := procedure(dss) {
+    return avg({ p_conn(dss[j], dss[j+1]) : j in [1..(#dss - 1)] });
+  };
+  /* Measures connectedness of credences between two decision states. They
+     are connected by either having similar probability values or by reflecting
+     cognitive changes, i.e. updating using conditional probabilities and
+     resulting in probability values that are close to (locally) ideally 
+     rational inferences. */
+  p_conn := procedure(ds1, ds2) {
+    return avg({ 
+      // Gain full credit of the higher of similarity or cognitive score and
+      max( sim_cog_scores(ds1, ds2, p_i) ) + 
+        // Close the remaining distance proportional to
+        (1 - max( sim_cog_scores(ds1, ds2, p_i) )) * 
+        // the other of the similarity or cognitive score
+        min( sim_cog_scores(ds1, ds2, p_i) ) 
+      // For every p var
+      : p_i in p_vars() 
+    });
+  };
+    
+    sim_cog_scores := procedure(ds1, ds2, p_i) {
+      return [p_i_sim(ds1, ds2, p_i), cog_change(ds1, ds2, p_i)];
+    };
+
+    // Similarity / closeness. Returns 0-1.
+    p_i_sim := procedure(ds1, ds2, p_i) { 
+      max_dist := max({ abs(ds1[p_i] - r_i) : r_i in r[p_i] });
+      return 1 - abs(ds1[p_i] - ds2[id_var(p_i)]) / max_dist;
+    };
+
+    // Cognitive change. Returns 0-1.
+    cog_change := procedure(ds1, ds2, p_i) { 
+      if (p_i in range(p)) { // rather than range(cp)
+        return 0;
+      } else {
+        arr := p_inv(p_i);
+        hyp := arr[1]; 
+        evd := arr[2];  
+        ancs := non_shared_ancestors(p_i, m);
+        if (p[hyp] in ancs && p[evd] in ancs && cp[[evd, hyp]] in ancs) {
+          /* For simplicity we just use the p vals in the immediate parent 
+             (ds1). Really we should construct and use 
+             non_shared_ancestors_with_depth and pull the p values from the 
+             correct time slice. Similarly for id_expr. */
+
+          // Rational P(H|E) = P(E|H) * P(H) / P(E)
+          rat_h_e := ds1[cp[[evd, hyp]]] * ds1[p[hyp]] / ds1[p[evd]];
+          // Distance from rational
+          dist_rat := abs(rat_h_e - ds2[ cp[ [id_expr(hyp), id_expr(evd)] ] ]);
+          // Maximum distance possible
+          max_dist := max({ abs(rat_h_e - r_i) : r_i in r[p_i] });
+          return 1 - dist_rat / max_dist;
+        } else {
+          return 0;
+        }
+      } // end else 
+    }; // end cog_change
+
+  /* Takes an expression e and returns the expression at the next time step
+     that would be identical. In many cases, this is just the same expression e,
+     but we define input variables as indexicals so the same expression next
+     time step does not refer to the expression in this time step. So, we
+     introduce a new term At(expr, -1) which at that time step, would refer to 
+     the same as this time's expr.  
+  */
+  id_expr := procedure(expr) {
+    if (isList(expr)) { // in case it's called on p_inv of cp var
+      return [ id_expr(expr_i) : expr_i in expr ];
+    } else { 
+      if (p[expr] in i) { // current input
+        return At_t(expr, -1);
+      } else if (isTerm(expr) && fct(expr) == "At_t") { // past, add 1 more step
+        return At_t(args(expr)[1], args(expr)[2] - 1);
+      } else {
+        return expr;
+      }
+    }
+  };
+
+  /* Takes a prob variable and finds its expr preimage, then finds the expr that
+     in the next time would be identical to this expr. Returns that expr var. */
+  id_var := procedure(p_var) {
+    return p[id_expr(p_inv(p_var))];
+  };
+
+  poss_i_events := procedure() {
+    return +/ { possible_states(isub, r) : isub in ne_pow(i) };
+  };
+
+  e_vars := procedure() {
+    return +/ { range(n_i['e']) : n_i in n };
+  };
+
+  poss_ue_events := procedure() {
+    return +/ { possible_states(ue_sub, r) 
+                : ue_sub in ne_pow(range(u) + e_vars()) };
+  };
+
+  poss_p_i_events := procedure() {
+    return +/ { { [p_i, r_i] : r_i in r[p_i] } : p_i in range(p) }; 
+  };
+
+  poss_p_var_events := procedure() {
+    return +/ { { [p_i, r_i] : r_i in r[p_i] } : p_i in p_vars() }; 
+  };
+
+  // Possible states of all prescription vars
+  poss_rx_states := procedure() {
+    n_o_vars := +/ { n_i['o'] : n_i in n };
+    return possible_states(n_o_vars, r);
+  };
+
+  // Possible single prescriptions for some higher-order utility
+  poss_rxs := procedure() {
+    n_os := { n_i['o'] : n_i in n };
+    return +/ { possible_states(n_o, r) : n_o in n_os };
+  };
+
+  /* Utility Function Connectedness
+		 ------------------------------
+     Measures how much the utility function has either remained similar or 
+     changed as the result of a cognitive process involving i) recognition that 
+     some prescription (rx) would cause a utility change, ii) that recognition
+     in fact causes the prescription and iii) that prescription causes the 
+     utility change. These are to be contrasted with changes to utilities from
+     mere noise, associations or biases.  */
+  u_conn := procedure(w, b, t_i, ds1, ds2, ds3) {
+    actual_rxs := { rx : rx in poss_rxs() 
+                       | rx_to_tuple(w, b, t_i, ds1, ds2, ds3, rx) != {} };
+    rx_subsets := pow(actual_rxs);
+
+    dists := { dist_to(w, b, t_i, ds1, ds2, ds3, rx_subset) 
+               : rx_subset in rx_subsets };
+    return 1 - min(dists); 
+  }; // end u_conn
+
+    /* Takes a prescription and returns the tuples if any which realize i, ii
+       and iii above.  */
+    rx_to_tuple := procedure(w, b, t_i, ds1, ds2, ds3, rx) {
+      poss_tuples := poss_p_var_events() >< poss_i_events()  >< 
+                               p_range() >< poss_ue_events();
+      return { tuple : tuple in poss_tuples 
+                     | observed(w, b, t_i, rx, ds1, ds2, ds3, tuple) }; 
+    };
+
+      observed := procedure(w, b, t_i, rx, ds1, ds2, ds3, tuple) {
+        f_p_i  := tuple[1]; // Assignment of value to p_i, rx []-> ue
+        g_i_rx := tuple[2]; /* Assignment of value to a prescription which is
+                               introspectively accessible as i vars */
+        p_ue_val := tuple[3]; // Credence placed in ue (the consequent of []->)
+        h_ue   := tuple[4]; // ue event
+        return f_p_i != {} && g_i_rx != {} && h_ue != {} &&
+          // g_i_rx and rx are implemented by the same brain event and 
+          // the decision events occur at the right times
+          lf_inv(g_i_rx) == lf_inv(rx) && restricted_eq(ds2, g_i_rx) && 
+          restricted_eq(ds2, rx) && restricted_eq(ds1, f_p_i) && 
+          restricted_eq(ds3, h_ue) && 
+          // first(domain(f_p_i)) is p_i and p_i is _ []-> _
+          fct(p_var_inv(first(domain(f_p_i)))) == "BoxArrow" && 
+          /* The ref of the brain event of ds1 implementing the placement of 
+             prob in the p_i expr == lf_inv h_ue in two time steps
+             i.e. the consequent of []-> refers to the intended ue change */
+          /* Todo: Allow for changes that had i, ii, and iii but only partially 
+             updated the utility / eval functions.  */
+          ref(w,b)[lf_inv_at(b, t_i)[
+            {[ p[args(p_var_inv(first(domain(f_p_i))))[2]], p_ue_val ]}
+          ]] == lf_inv_at(b, t_i + 2)[h_ue] &&
+          // p_i influences each var in rx
+          first(domain(f_p_i)) in { parents(v) : v in domain(rx) } &&
+          // each var in rx influences each var in the utility change 
+          forall(v in g_i_rx | v in { parents(ue) : ue in domain(h_ue) });
+      };
+
+    /* Given a subset of observed prescriptions, we compare the resulting 
+       utility function to what was prescribed within that subset. The overall 
+       u_conn score will take the minimum distance seen this way.
+         Todo: Allow for changes that had i, ii, and iii but only partially 
+       updated the utility / eval functions.  */
+    dist_to := procedure(w, b, t_i, ds1, ds2, ds3, rx_subset) {
+      u1 := { [u_i, ds1[u_i]] : u_i in u };                         
+      e1 := { u1 } + { { [e_i, ds1[e_i]] : e_i in n_i['e'] } : n_i in n };
+      
+      rxd := { [e_i, rx_e_i_val(w, b, t_i, ds1, ds2, ds3, rx_subset, e_i)] 
+               : e_i in domain(e1) };
+      rxd_u := { [u_i, rxd[u_i]] : u_i in u };
+      rxd_n := [ { [e_i, rxd[e_i]] : e_i in n_i['e'] } : n_i in n ];
+      rxd_e := [ rxd_u ] + rxd_n;
+      // The prescribed util / eval change
+      ord_rxd_e := [ additive_to_ordinal(rxd_e[j], j) : j in [1..#rxd_e] ];
+      // The actual change in ds3
+      ord_e := [ additive_to_ordinal(e_func(ds3, j), j) : j in [1..#rxd_e] ];
+  
+      e_dists := [ ord_u_dist(ord_e[j], ord_rxd_e[j]) : j in [1..#ord_e] ];
+
+      // Todo: Add weights? 
+      return avg(e_dists);
+    }; // end dist_to
+
+      /* Given a subset of observed prescriptions and an e_i var, return the
+         value prescribed for the e_i var.  */
+      rx_e_i_val := procedure(w, b, t_i, ds1, ds2, ds3, rx_subset, e_i) {
+        /* The prescribed values (rxds) are the values of the e_i var in the 
+           ue event from rx_to_tuple (for any rxs that prescribe for e_i). */
+        rxds := { rx_to_tuple(w, b, t_i, ds1, ds2, ds3, rx_i)[4][e_i] 
+          : rx_i in rx_subset  // h_ue[e_i]
+          | e_i in domain(rx_to_tuple(w, b, t_i, ds1, ds2, ds3, rx_i)[4]) }; 
+            // e_i in domain(h_ue)
+        if (#rxds > 0) {
+          // If #rxds > 1, they should all be the same anyway bc it was observed
+          return first(rxds); 
+          /* Todo: In later versions, we probably want to allow for non-exact 
+             changes and then choose the one closest to the observed.  */
+        } else {
+          return e1[e_i]; // No change
+        }
+      };
+
+  // Utility / Evaluation Function implemented in a given decision state ds
+  e_func := procedure(ds, j) {
+    if (j == 0) {
+      return { [u_i, ds[u_i]] :  u_i in range(u) };
+    } else {
+      return { [e_i, ds[e_i]] : e_i in range(n[j]['e']) };
+    }    
+  };
+
+	ue := procedure(j) {
+    if (j == 0) {
+      return u;
+    } else {
+      return n[j]['e'];
+    }
+	};
+
+  ue_base_exprs := procedure(j) {
+    return +/ { subformulas(x_i) : x_i in domain(ue(j)) };
+  };
+
+  /* Takes a decision state, i.e. a function from (among other things) utility
+     variables to numbers (utilities), and an index j and returns a set of 
+     SuccEq (succeeds or equals) setlx functors. If j is 0, then u is converted
+		 to ordinal, otherwise, n[j]['e'] is. */
+  additive_to_ordinal := procedure(ds, j) {
+		return add_u_to_card_u(e_func(ds,j));
+  };
+
+  /* Brain-State Measure Paths 
+		 -------------------------
+     Returns a list where for each future time, there is a set of 
+     bs_msr_paths, each of which in turn is a list of bs_msrs for each time 
+     from the first to the given time. A bs_msr is a pair [bs, msr]. 
+    
+     One can think in terms of a tree. At the root is the given starting brain 
+     state. Each branch is a continuation with different inputs and a measure 
+     for that branch based on subjective likelihood. A path is a full branch 
+     line from root to leaf collecting pairs of brain states and measures along
+     the way. 
+
+     e.g. [bs_msr_paths_t1, ..., bs_msr_paths_tz]
+       bs_msr_paths_tj := { bs_msrs_tj_1, bs_msr_tj_2, ... }
+         bs_msrs_tj_k := [ bs_msr_t1, ..., bs_msr_tj ]
+           bs_msr_tj := [bs_tj, msr]
+
+                     [ bs1, 1 ]
+                    /   |      \
+               is1 /    |is2    \  is3   (input states leading to continuations)
+                  /     |        \  
+                 /      |         \
+     [bs_t2a, 1/6]  [bs_t2b, 1/2]  [bs_t2c, 1/3]  
+      /    |    \     /   |   \      /   |   \
+     ...
+
+     There's some duplication and space inefficiency in having the previous 
+     times' brain states and measures present both in the earlier elements of
+     the top level list as well as within the set of paths for each element.
+     We probably could do without it but it makes it a little more convenient
+     when calculating the voter weights for each time's voters in computing
+     the rational utility function. Some aspects of those weights like the 
+     agential identity depend on the entire path taken and not just the final
+     brain state.
+  */
+  bs_msr_paths := procedure(w, b, bs1, t_j) {
+    if (t_j == 1) {
+      return [{[[bs1, 1]]}];
+    } else {
+      return bs_msr_paths(w, b, bs1, t_j - 1) + 
+        [+/ { 
+           { bmp + [bs_msr] 
+             : bs_msr in next_bs_msrs(w, b, last(bmp)[1], last(bmp)[2], t_j-1) }
+           : bmp in last(bs_msr_paths(w, b, bs1, t_j - 1))
+         }];
+    }
+  };  
+
+  /* Takes a brain, brain state, measure and prev t_i and returns the possible
+     continuations in the next time step together with their measure 
+     roughly proportional to the subjective likelihood.  */
+  next_bs_msrs := procedure(w, b, bs_i, msr, t_j) {
+    bs_j := b.response(bs_i);
+    // Possible brain input states from each di possible decision input states.
+    pbis := { [di, lf_inv(b)[di]] : di in poss_i_states() };
+    /* Possibly empty brain input states since we now filter by compatibility
+       with the brain response bs_j. (Recall that input vars may overlap with
+       other vars that bs_j may dictate values for.) */
+    pe_bis := { [di, { pbi : pbi in pbi_s | compat(pbi, bs_j) }] 
+                : [di, pbi_s] in pbis };
+    // pbi_s = possible brain input sets
+    bis := { [di, pbi_s] : [di, pbi_s] in pe_bis | pbi_s != {} };
+
+    /* For each brain input state of each decision input state, map the total
+       brain state including the response bs_j to its new measure. 
+
+       Ideally, the new measure would be proportional to the brain input 
+       state's subjective probability. This was under development but doing it 
+       in a way that is biologically plausible presents a challenge. To avoid 
+       an implausible number of explicit probabilities, we'd probably have to 
+       look at the closest coherent extensions of the current probability 
+       distribution as well as allow for indirect reference, which introduces 
+       its own challenges in translating probabilities from direct to indirect.
+       
+       Although I by no means think these challenges insurmountable, the 
+       technical complications involved seemed too great for a first version
+       and not worth delaying the initial release over. As a placeholder here,
+       we simply assume each possible decision input state is equally probable
+       and each brain state implementing a given decision input state is
+       similarly equally probable to other such implementations.
+
+       While incorporating the subjective probability seems preferable, it's
+       also worth mentioning that it may not actually be necessary. The main
+       motivation is to make continuations of the agent under very weird 
+       scenarios matter less. But if the worry there is that those 
+       circumstances are distorting the agent's values, we already have the 
+       agential_identity measure to discount them. In other words, agential
+       identity may screen off a circumstance's weirdness from its relevance.
+    */
+    return +/ { 
+      { [ bi + bs_j, msr * (1 / #domain(bis)) * (1 / #bis[di]) ] 
+        : bi in bis[di] } 
+      : di in domain(bis) 
+    };
+  };
+
+
+// Class Methods
+// =============
+
+  static {
+    /* Function from a causal_model of a brain b and a set of decision 
+       algorithm candidates to the decision algorithm that is the best 
+       compression of the brain.  */
+    implemented_by := cachedProcedure(b, ds) {
+      if (ds == {}) {
+        ds := decision_algorithm.all(b);
+      }
+      /* Requiring simplest version helps ensure higher-order ambitiousness,
+         i.e. prevents smuggling in higher-order norms within the n[j]['m2'] 
+         variables. In future iterations, this might be softened.  */
+			ds := [d : d in ds | d.is_implemented_by(b) && d.is_simplest_version(b)]; 
+      ds := sort_list(ds, decision_algorithm.better_explanation(b));
+      return ds[1];
+    };
+    
+    /* Given a causal model of a brain, return the set of possible decision 
+       algorithms which could be implemented by it based simply on number of 
+       states. A decision algorithm can't be more fine-grained than its 
+       substrate.  */
+    all := cachedProcedure(b) {
+      return { d : d in decision_algorithm.all_lte(#b.poss_states()) };
+    };
+
+    // All with #poss_states <= z
+    // Todo: Add possible At_t exprs and predicates and quantifiers
+    all_lte := cachedProcedure(z) {
+      poss_i := da().ltr_up_to('I', z/2);
+      var_ltrs := { 'A', 'B', 'C' };
+      poss_base_vars := da().vars_up_to(var_ltrs, n);
+      poss_exprs := { da().add_up_to(pbe, z/2) 
+                      : pbe in poss_base_vars };
+      poss_p := da().poss_expr_to_ltr(poss_exprs, 'P');
+      // e.g. { [[x, y], 'P(x|y)'], ... } 
+      poss_cp := pow({ [[x, y], 'P(' + str(x) + '|' + str(y) + ')'] 
+                       : [x, y] in poss_exprs >< poss_exprs });
+      poss_o := da().ltr_up_to('O', z/2);
+      poss_u := da().poss_expr_to_ltr(poss_exprs, 'U');
+      poss_m := da().ltr_up_to('M', z/2);
+      poss_m2 := da().ltr_up_to('M2', z/2);
+      poss_n := +/ { choices({ da().poss_nj(poss_exprs, z, j) : j in [1..x] }) 
+                     : x in [1..z] };
+      return +/ { 
+        +/ { da().poss_ds(d_i, d_o, d_p, d_cp, d_u, d_m, d_m2, d_n, poss_r) 
+             : poss_r in da().poss_rs(z, d_i, d_o, d_p, d_cp, 
+                                         d_u, d_m, d_m2, d_n) }
+        : [d_i, d_o, d_p, d_cp, d_u, d_m, d_m2, d_n] in 
+          da().cart_prod(poss_i, poss_o, poss_p, poss_cp, 
+                         poss_u, poss_m, poss_m2, poss_n) 
+      };
+    }; // end all_lte
+
+      ltr_up_to := procedure(ltr, j) {
+        return { ltr + '_' + y : y in [1..j] };
+      };
+
+      vars_up_to := procedure(ltrs, j) {
+        return +/ { da().ltr_up_to(ltr, j) : ltr in ltrs };
+      };
+
+      add_one := procedure(exprs) {
+        unary := { 'Not' };
+        binary := { 'And', 'Or', 'Implies', 'BoxArrow' };
+        add_un := { makeTerm(op, [expr]) : [op, expr] in unary >< exprs };
+        add_bi := { makeTerm(op, [expr1, expr2]) 
+                    : [op, [expr1, expr2]] in binary >< (exprs >< exprs) };
+        return exprs + add_un + add_bi;
+      };
+
+      add_up_to := procedure(base_vars, j) {
+        if (j == 0) {
+          return base_vars;
+        } else {
+          return da().add_one( da().add_up_to(base_vars, j - 1) );
+        }
+      };
+
+      expr_to_ltr_var := procedure(expr, ltr) {
+        return ltr + '(' + replace(str(expr), '"', '') + ')';
+      };
+
+      poss_expr_to_ltr := procedure(poss_exprs, ltr) {
+        return { { [expr, da().expr_to_ltr_var(expr, ltr)] : expr in subset } 
+                 : subset in pow(poss_exprs) };
+      };
+
+      poss_nj := procedure(poss_exprs, z, j) {
+        poss_e_nj := da().poss_expr_to_ltr(poss_exprs, 'E_n' + j);
+        poss_m2_nj := da().ltr_up_to('M2_n' + j, z/2);
+        poss_o_nj := da().ltr_up_to('O_n' + j, z/2);
+        return { { ['e', e_n], ['m', m_n], ['o', o_n] }
+          : [e_n, m_n, o_n] in cart_prod([poss_e_nj, poss_m2_nj, poss_o_nj]) };
+      };
+
+      poss_rs := procedure(z, d_i, d_o, d_p, d_cp, d_u, d_m, d_m2, d_n) {
+        poss_p_vals := { { j / x : j in [0..x] } : x in [1..z] };
+        poss_ue_vals := ne_pow({ j : j in [1..2**z] });
+        poss_z_vals := { { j : j in [1..x] } : x in [1..z] };
+        poss_o_vals := poss_z_vals;
+
+        poss_r_ps := {
+          { [i_var,  p_vals] : i_var  in d_i         } + 
+          { [p_var,  p_vals] : p_var  in range(d_p)  } + 
+          { [cp_var, p_vals] : cp_var in range(d_cp) }
+          : p_vals in poss_p_vals
+        };
+       
+        return +/ choices(
+          { poss_r_ps, da().poss_r_ue(poss_ue_vals, d_u) } + 
+          { da().poss_r_ue(poss_ue_vals, n_i['e']) : n_i in d_n } +
+          { da().poss_r_z(poss_z_vals, d_z) : d_z in { d_o, d_m, d_m2 } }
+        );
+      }; // end poss_rs
+
+        poss_r_ue := procedure(poss_ue_vals, ue) {
+          return { { [ue_var, ue_vals] : ue_var in range(ue) }
+                   : ue_vals in poss_ue_vals };
+        };
+
+        poss_r_z := procedure(poss_z_vals, d_z) {
+          return choices({ {z_var} >< poss_z_vals : z_var in d_z });
+        };
+
+      poss_ds := procedure(z, d_i, d_o, d_p, d_cp, d_u, d_m, d_m2, d_n, d_r) {
+        poss_is_state := possible_states(d_i + d_p + d_cp + 
+                                         d_u + d_m + d_m2 + d_n, d_r);
+        poss_s_state  := possible_states(d_p + d_cp + d_u + 
+                                         d_m + d_m2 + d_n, d_r);
+        poss_t_s := function_space(poss_is_state, poss_s_state);
+
+        poss_p_u_m2 := possible_states(d_p + d_u + d_m2, d_r);
+        poss_o_state := possible_states(d_o, d_r);
+        poss_t_o := function_space(poss_p_u_m2, poss_o_state);
+
+        das := { 
+          decision_algorithm(d_i, d_o, d_p, d_cp, d_u, d_m, d_m2, d_n, 
+                             d_r, d_t_s, d_t_o, om, om, om) 
+          : [d_t_s, d_t_o] in poss_t_s >< poss_t_o 
+        };
+        return { da : da in das | da.is_valid() && #da.poss_states() <= z};
+      };
+
+    better_explanation := cachedProcedure(b) {
+      return procedure(d1, d2) {
+               return da().expl_score(b, d1) > da().expl_score(b, d2);
+             };
+    };
+
+      expl_score := procedure(b, d_i) {
+        return d_i.ambitiousness(b) - d_i.complexity(b) 
+               - d_i.instr_irrat(b) - d_i.incoherence(b);
+      };
+
+    simpler := cachedProcedure() {
+      return procedure(d1, d2) {
+               return k(d1.to_s) < k(d2.to_s);               
+             };
+    };
+
+		new := procedure() {
+			return decision_algorithm({}, {}, {}, {}, {}, {}, {}, [], {}, {}, {}, 
+                                om, om, om);
+		};
+
+  } 
+}
+
+// alias 
+da := procedure() { return decision_algorithm; };

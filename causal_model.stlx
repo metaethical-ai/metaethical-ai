@@ -1,0 +1,130 @@
+/* Adapted from Judea Pearl's Causal Models
+		 e.g. Pearl, Judea. Causes and Explanations: A Structural-Model Approach
+					http://ftp.cs.ucla.edu/pub/stat_ser/R266-part1.pdf
+*/
+class causal_model(u, v, r, f, cached_poss_states) {
+  u := u; // Set of exogenous variables
+          //   e.g. u := { 'O' };
+  v := v; // Set of endogenous variables
+          //   e.g. v := { 'F', 'L', 'ML' };
+  r := r; // Function assigning a range of values for each variable
+          //   e.g. r := { [x, { false, true }] : x in u + v };
+	/* Higher order function from y in v to a higher order function from a
+		 function assigning values to exogenous and other endogenous vars to a 
+		 value for y.
+		   eg f := { [y, f_y], [z, f_z], ... }
+				 		f_y := { [f_y_1, true], [f_y_2, false], ... } // rows in truth table
+							f_y_1 := { [x, false], [z, false], ... }
+	*/
+  f := f; 
+
+  uv := procedure() {
+    return u + v;
+  };
+
+  /* Takes an assignment of values to endogenous variables and returns a 
+		 causal submodel. See 7.12 Pearl's Causality book.  */
+  effect_of_do := procedure(g) {
+		h := { [y, f[y]] : y in v | !(y in domain(g)) } + 
+		     { [x, i_proc_to_func(x, procedure(h) { 
+					 												 return g[x]; 
+															 	 })] : x in domain(g) };
+		return causal_model(u, v, r, h, om);
+	};
+
+  /* Takes a set of variables ys and an assignment of values g to endogenous 
+		 and exogenous variables and returns an assignment of values to ys */
+  response := procedure(ys, g) {
+    sm := effect_of_do(g);
+    result := { [y, sm.solve_for(y, g)] : y in ys };
+    return result;
+  };
+
+	/* Takes a variable y and an assignment of values g to exogenous variables 
+		 and returns a value for y */
+  solve_for := procedure(y, g) {
+		g := { [x, g[x]] : x in domain(g) | x in u };
+    if (y in u) {
+      return g[u];
+    } else if (#parents(y) == 0) {
+      return last(first(f[y]));
+    } else { // y in v
+			// todo: sometimes a conflict? 
+			h := g + { procedure() { 
+									 if (z in parents(y)) {
+										 return [z, solve_for(z, g)];
+									 } else { // doesn't matter, pick first
+										 return [z, first(r[z])];
+									 }
+								 }() : z in (u + v) - domain(g) | z != y };
+			return f[y][h];
+    }
+  };
+
+	// Takes a variable and returns its parents
+  parents := procedure(y) {
+    return { z : z in u + v | z != y && is_nec_parent_of(z, y) };
+  };
+
+		/* Check whether there exists an assignment of values to the other 
+			 variables such that there are still different values of y depending 
+			 on values of z.  */
+		is_nec_parent_of := procedure(z, y) {
+			xs := {x : x in u + v | x != y && x != z}; // all other variables but z
+			g_xs := possible_states(xs, r);
+			return exists(g_x in g_xs | values_diff(g_x, y, z));
+		};
+
+		values_diff := procedure(g_x, y, z) {
+			vals := { f[y][ g_x + {[z,r_i]} ] : r_i in r[z] };
+			return #vals > 1;
+		};
+
+  /* Instance method shorthands for call to static version */
+  i_proc_to_func := procedure(y, p) {
+    return causal_model.proc_to_func(y, u, v, r, p);
+  };
+
+  poss_states := procedure() {
+    if (cached_poss_states == om) {
+      cached_poss_states := compute_poss_states();
+    }
+    return cached_poss_states;
+  };
+
+    compute_poss_states := procedure() {
+      return possible_states(u + v, r);
+    };
+
+	poss_events := cachedProcedure() {
+		return +/ { pow(ps) : ps in poss_states() };
+	};
+
+  sorted_v := procedure() {
+    return sort_list( [y : y in v], 
+                      procedure(y, z) { return depth(y) < depth(z); } );
+  };
+  
+    depth := procedure(y) {
+      if (y in u) {
+        return 0;
+      } else {
+        return 1 + max({ depth(z) : z in parents(y) }); 
+      }
+    };
+
+  static {
+    /* Helper method that takes an endogenous variable y, & u, v, r and a 
+       procedure and returns a function. The procedure should take an 
+			 assignment of values to exogenous variables and other endogenous 
+			 variables and return y's value. */
+    proc_to_func := procedure(y, u, v, r, p) { 
+			dom := possible_states({ x : x in u + v | x != y }, r);
+			return { [g, p(g)] : g in dom };
+    };  
+  
+    new := procedure() {
+      return causal_model({}, {}, {}, {}, om);
+    };
+  }
+}

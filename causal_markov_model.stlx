@@ -1,0 +1,126 @@
+class causal_markov_model(n, u, v, r, f, a, cached_cm) {
+	n := n; // integer number of time slices
+  u := u; // Set of exogenous variables
+          //   e.g. u := { 'O' };
+  v := v; // Set of endogenous variables
+          //   e.g. v := { 'F', 'L', 'ML' };
+  r := r; // Function assigning a range of values for each variable
+          //   e.g. r := { [x, { false, true }] : x in u + v };
+	/* Higher order function from y in v to a higher order function from a
+		 function assigning values to exogenous and endogenous vars to a value 
+		 for y.
+			 eg f := { [y, f_y], [z, f_z], ... }
+			   f_y := { [f_y_1, true], [f_y_2, false], ... } 
+					f_y_1 := { [y, false], [z, false], ... }       (row in truth table)
+   	 A variable (technically, its past time slice) can also be its own parent
+  */
+  f := f; 
+
+	/* A list of actual states, one for each time slice. Each actual state is a 
+		 function assigning values to cm() vars of the given time.
+		   e.g. [ {['y_t1',true],...}, {['y_t2',false],...}, ... ] */
+	a := a;
+
+	uv := procedure() {
+		return u + v;
+	};
+
+	u_t := procedure(t) {
+		return { x + '_t' + t : x in u };
+	};
+	v_t := procedure(t) {
+		return { x + '_t' + t : x in v };
+	};
+	uv_t := procedure(t) {
+		return u_t(t) + v_t(t);
+	};
+
+	cm := procedure() {
+    if (cached_cm == om) {
+      cached_cm := compute_cm();
+    }
+    return cached_cm;
+	};
+
+    compute_cm := procedure() {
+  		return causal_model(cm_u(), cm_v(), cm_r(), cm_f(), om);
+    };
+
+    cm_u := procedure() {
+      u_ts := { u_t(t) : t in [1..n] }; 
+      if (u_ts == {}) { 
+        u_ts := {{}};
+      }
+      return +/ u_ts + v_t(1);
+      // Includes the first v_t since there's no previous time parents
+    };
+
+    cm_v := procedure() {
+      return +/ { v_t(t) : t in [2..n] };
+      // Starts at 2 because the first, parentless v_t is counted in cm_u
+    };
+
+    cm_r := procedure() {
+      return { [x, r[orig_var(x)]] : x in cm_u() + cm_v() };
+    };
+
+    cm_f := procedure() {
+      return { [x, fix_time(x, f[orig_var(x)], var_time(x) - 1)] : x in cm_v() };
+    };
+
+      fix_time := procedure(x, f_x, t) {
+				// Add time subscript to f_x
+        f_prev_t := { [assign_time(g, t), f_x[g]] : g in domain(f_x) };
+				// Extend from one timeslice to states over all vars but x
+				ext_xs := (cm_u() + cm_v()) - uv_t(t) - {x}; // extended vars
+				poss_ext_states := possible_states(ext_xs, cm_r()); // extended states
+				// Output remains f_prev_t[prev_t_st] since it's a markov model
+				return +/ { { [prev_t_st + ext_state, f_prev_t[prev_t_st] ] 
+						   	  		: ext_state in poss_ext_states }
+					   				: prev_t_st in domain(f_prev_t)
+				   			  };
+      };
+
+	poss_states := procedure() {
+		return possible_states(u + v, r);	
+	};
+
+	poss_events := procedure() {
+		return +/ { 2 ** ps : ps in poss_states() };
+	};
+
+	actual_events := procedure() {
+		return pow(actual_state()) - {{}};
+	};
+
+  actual_state := procedure() {
+    return +/ { actual_state : actual_state in a };
+  };
+
+	/* Set of all actual synchronic events, 
+		 i.e. those taking place at a single time. */
+	actual_sync_events := procedure() {
+		return +/ { pow(actual_state) : actual_state in a } - {{}};
+	};
+
+	/* Use the causal model on the first two times */
+	// g needs to be full state?
+	response :=  procedure(ys, g) {
+		g1 := assign_time(g, 1);
+		ys2 := { y + '_t' + 2 : y in ys }; 
+		return drop_time(cm().response(ys2, g1));
+	};
+
+  /* Form the full state transition table and convert it to a string along with
+     the vars and ranges. */
+  t_to_str := procedure() {
+    tt := { [ps, response(v, ps)] : ps in poss_states() };
+    return str([tt, n, u, v, r]);
+  };
+
+  static {
+    new := procedure() {
+      return causal_markov_model(0, {}, {}, {}, {}, [], om);
+    };
+  }
+}

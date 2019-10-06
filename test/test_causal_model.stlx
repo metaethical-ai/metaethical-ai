@@ -1,0 +1,67 @@
+print("\nTesting Causal Model");
+print(  "====================");
+
+cm1 := procedure() {
+  u := { 'O' };
+  v := { 'F', 'L', 'ML' };
+  r := { [x, { false, true }] : x in u + v };
+  f_f := causal_model.proc_to_func('F', u, v, r, procedure(h) {
+           if (h['L'] || h['ML']) {
+             return true;
+           } else {
+             return false;
+           }
+         });
+  f := { ['F', { [{ ['O', false], ['L', false], ['ML', false] }, false],
+                 [{ ['O', false], ['L', false], ['ML', true ] }, true ],
+                 [{ ['O', false], ['L', true ], ['ML', false] }, true ],
+                 [{ ['O', false], ['L', true ], ['ML', true ] }, true ],
+                 [{ ['O', true ], ['L', false], ['ML', false] }, false],
+                 [{ ['O', true ], ['L', false], ['ML', true ] }, true ],
+                 [{ ['O', true ], ['L', true ], ['ML', false] }, true ],
+                 [{ ['O', true ], ['L', true ], ['ML', true ] }, true ] }],
+         ['L',  causal_model.proc_to_func('L', u, v, r, procedure(g) {
+                  return false;
+                })],
+         ['ML', causal_model.proc_to_func('ML', u, v, r, procedure(g) {
+                  return false;
+                })] };
+  assert(f_f == f['F'], 'proc_to_func helper method is incorrect');
+
+  cm := causal_model(u,v,r,f, om);
+  assert(cm.f['F'] == f_f, 'causal model class is incorrect');
+  
+  return cm;
+};
+test_proc_to_func := procedure() { 
+  cm1(); 
+  print('[ok] proc_to_func');
+};
+test_proc_to_func();
+
+test_effect_of_do := procedure() {
+  sm := cm1().effect_of_do({ ['F', true], ['L', true] }); 
+  assert((sm.f['F' ])[{ ['O', false], ['L', false], ['ML', false] }] <==> true, 
+           'effect_of_do F is incorrect');
+  assert((sm.f['L' ])[{ ['O', false], ['F', false], ['ML', false] }] <==> true, 
+           'effect_of_do L is incorrect');
+  assert((sm.f['ML' ])[{ ['O', false], ['F', false], ['L', false] }] <==> false,
+           'effect_of_do ML is incorrect');
+  print('[ok] effect_of_do');
+};
+test_effect_of_do();
+
+test_parents := procedure() {
+  assert(cm1().parents('F') == { 'L', 'ML' }, 'parents is incorrect');
+  print('[ok] parents');
+};
+test_parents();
+
+test_response := procedure() {
+  assert(cm1().response({'F'}, { ['L', false], ['O', true], ['ML', false] })['F'] == false, 
+         'response is incorrect');
+  assert(cm1().response({'F'}, { ['L', true], ['O', true], ['ML', false] })['F'] == true, 
+         'response is incorrect');
+  print('[ok] response');
+};
+test_response();

@@ -1,0 +1,1320 @@
+print("\nTesting Decision Algorithm");
+print(  "==========================");
+
+test_s := procedure() {
+  d := decision_algorithm({'I'}, {'O'}, { ['A', 'P(A)'] }, // i, o, p
+    { [['A', 'A'], 'P(A|A)'] }, {['A','U(A)']}, {'M'}, {'M2'}, // cp, u, m, m2
+    [{ ['e', {['B','E_n1(B)']}], ['m2', {'M2_n1'}], ['o', {'O_n1'}] }], // n
+    {}, {}, {}, om, om, om); // r, t_s, t_o, cacheds
+  assert(d.s() == { 'P(A)', 'P(A|A)', 'U(A)', 'M', 'M2', 
+                    'E_n1(B)', 'M2_n1', 'O_n1' },
+         "Error: s is incorrect.");
+  print('[ok] s');
+};
+test_s();
+
+test_t := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'I' };
+  d.o := { 'O' };
+  d.p := { ['A', 'P'] };
+  d.t_s := { // is                         -> s
+             [{ ['I', false], ['P', false] }, { ['P', false] }], 
+             [{ ['I', false], ['P', true ] }, { ['P', true ] }], 
+             [{ ['I', true ], ['P', false] }, { ['P', true ] }], 
+             [{ ['I', true ], ['P', true ] }, { ['P', false] }] 
+           }; // xor
+  d.t_o := { // p u m2       -> o
+             [{ ['P', false] }, { ['O', false] }], 
+             [{ ['P', true ] }, { ['O', true ] }]
+           }; // identity
+  assert(d.t() == { 
+           // is                         ->  so
+           [{["I", false], ["P", false]}, {["O", false], ["P", false]}], 
+           [{["I", false], ["P", true ]}, {["O", true ], ["P", true ]}], 
+           [{["I", true ], ["P", false]}, {["O", false], ["P", true ]}], 
+           [{["I", true ], ["P", true ]}, {["O", true ], ["P", false]}]
+         },
+         "Error: t is incorrect.");
+  print('[ok] t');
+};
+test_t();
+
+test_ns := procedure() {
+  d := decision_algorithm.new();
+  d.n := [{ ['e', {['A','E_n1(A)']}], ['m2', {'M2_n1'}], ['o', {'O_n1'}] },
+          { ['e', {['B','E_n2(B)']}], ['m2', {'M2_n2'}], ['o', {'O_n2'}] } ];
+  assert(d.ns( 'e') == { 'E_n1(A)', 'E_n2(B)' } &&
+         d.ns('m2') == {   'M2_n1', 'M2_n2'   } &&
+         d.ns( 'o') == {    'O_n1', 'O_n2'    },
+         "Error: ns is incorrect.");
+  print('[ok] ns');
+};
+test_ns();
+
+test_new := procedure() {
+  assert(decision_algorithm.new().t_o == {},
+         "Error: new is incorrect.");
+  print('[ok] new');
+};
+test_new();
+
+test_p_u_vars := procedure() {
+  d := decision_algorithm.new();
+  d.p  := { [       'A',   'P(A)'] };
+  d.cp := { [['A', 'A'], 'P(A|A)'] };
+  d.u  := { [       'A',   'U(A)'] };
+  assert(d.p_u_vars() == {'P(A)', 'P(A|A)', 'U(A)'},
+         "Error: is incorrect.");
+  print('[ok] p_u_vars');
+};
+test_p_u_vars();
+test_p_vars := procedure() { test_p_u_vars(); };
+
+test_just_p_u_m2 := procedure() {
+  d := decision_algorithm.new();
+  d.i  := { 'I' };
+  d.p  := { ['A', 'P(A)'] };
+  d.u  := { ['A', 'U(A)'] };
+  d.m2 := { 'M2' };
+  assert(d.just_p_u_m2({ ['I', true], 
+                         ['P(A)', 0.3], ['U(A)', 4], ['M2', true] }) == 
+                       { ['P(A)', 0.3], ['U(A)', 4], ['M2', true] },
+         "Error: just_p_u_m2 is incorrect.");
+  print('[ok] just_p_u_m2');
+};
+test_just_p_u_m2();
+
+test_parents := procedure() {
+  d := decision_algorithm.new();
+  d.m := { 'M1', 'M2' };
+  d.r := { ['M1', {true, false}], ['M2', {true,false}] };
+  d.t_s := { // is                  -> s
+    [{ ['M1', false], ['M2', false] }, { ['M1', true ], ['M2', true ] }], 
+    [{ ['M1', false], ['M2', true ] }, { ['M1', false], ['M2', true ] }], 
+    [{ ['M1', true ], ['M2', false] }, { ['M1', false], ['M2', false] }], 
+    [{ ['M1', true ], ['M2', true ] }, { ['M1', true ], ['M2', false] }] 
+  }; // M1 = ~xor; M2 = ~M1
+  assert(d.parents('M1') == {'M1', 'M2'} && d.parents('M2') == {'M1'},
+         "Error: parents is incorrect.");
+  print('[ok] parents');
+  assert(d.children('M1') == { 'M1', 'M2' } && d.children('M2') == {'M1'},
+        "Error: children is incorrect.");
+  print('[ok] children');
+};
+test_children               := procedure() { test_parents(); };
+test_is_necessary_parent_of := procedure() { test_parents(); };
+test_vals_diff              := procedure() { test_parents(); };
+test_parents();
+
+/*   ,------.
+    I--P--Y--X
+     `--U-'
+         `--Z
+*/
+test_non_shared_ancestors := procedure() {
+  d := decision_algorithm.new();
+  d.i := {'I'};
+  d.p := {['A', 'P']};
+  d.u := {['B', 'U']};
+  d.m2 := {'X', 'Y', 'Z'};
+  d.r := { ['I', tf()], ['P', {0,1}], ['U', {0,1}],
+           ['X', tf()], ['Y', tf()], ['Z', tf()] };
+  ts_proc := procedure(is_state) {
+    return { ['P', !is_state['I']], ['U', is_state['I']], 
+             ['X', !is_state['Y'] || is_state['I']], 
+             ['Y', is_state['P'] + is_state['U'] % 2], 
+             ['Z', is_state['U'] == 0] };
+  };
+  d.t_s := proc2func(ts_proc, d.poss_is_states());
+  assert(d.non_shared_ancestors('X', d.m2) == { 'I', 'P', 'U' } &&
+         d.non_shared_ancestors('Y', d.m2) == { 'P', 'U' } &&
+         d.non_shared_ancestors('Z', d.m2) == { 'U' },
+         "Error: non_shared_ancestors is incorrect.");
+  print('[ok] non_shared_ancestors');
+  
+  assert(d.poss_i_states() == { {['I', true]}, {['I', false]} },
+         "Error: poss_i_states is incorrect.");
+  print('[ok] poss_i_states');
+
+  assert({ {["P", 0], ["U", 0], ["X",  true], ["Y",  true], ["Z",  true]},
+           {["P", 1], ["U", 1], ["X", false], ["Y", false], ["Z", false]}
+         } < d.poss_s_states(),
+         "Error: poss_s_states is incorrect");
+  print('[ok] poss_s_states');
+
+  assert(d.poss_u_states() == { {['U', 0]}, {['U', 1]} },
+         "Error: poss_u_states is incorrect.");
+  print('[ok] poss_u_states');
+
+  assert(d.is_equal_to(d), 
+         "Error: is_equal_to is incorrect");
+  print('[ok] is_equal_to true');
+
+  d2 := d;
+  d2.i := d.i + { 'I2' };
+  assert(!d2.is_equal_to(d), 
+         "Error: is_equal_to is incorrect");
+  print('[ok] is_equal_to false');
+};
+test_non_shared_ancestors();
+test_poss_is_states := procedure() { test_non_shared_ancestors(); };
+test_poss_i_states  := procedure() { test_non_shared_ancestors(); };
+test_poss_s_states  := procedure() { test_non_shared_ancestors(); };
+test_poss_u_states  := procedure() { test_non_shared_ancestors(); };
+test_is_equal_to    := procedure() { test_non_shared_ancestors(); };
+
+
+
+/* X--Y--O
+    `--M--P
+*/
+test_non_shared_descendants := procedure() {
+  d := decision_algorithm.new();
+  d.m2 := {'X', 'Y'};
+  d.o := {'O'};
+  d.m := {'M'};
+  d.p := {['A','P']};
+  d.r := { ['X', tf()], ['Y', tf()], ['O', tf()], ['M', tf()], ['P', {0,1}] };
+  ts_proc := procedure(is_state) {
+    return { ['X', true], ['Y', !is_state['X']], ['O', is_state['Y']],
+             ['M', is_state['X']], ['P', #{ j : j in {1} | is_state['M']}] };
+  };
+  d.t_s := proc2func(ts_proc, d.poss_is_states());
+  to_proc := procedure(p_u_m2) {
+    return {[ 'O', p_u_m2['Y'] ]};
+  };
+  d.t_o := proc2func(to_proc, { d.just_p_u_m2(is) : is in d.poss_is_states() });
+  assert(d.non_shared_descendants('X', d.m2) == {'M', 'O'} &&
+         d.non_shared_descendants('Y', d.m2) == {'O'},
+         "Error: non_shared_descendants is incorrect.");
+  print('[ok] non_shared_descendants');
+};
+test_non_shared_descendants();
+
+d1 := cachedProcedure() {
+  d   := decision_algorithm.new();
+  d.i := { 'I' };
+  d.p := { ['A', 'P'] };
+  d.o := { 'O' };
+  d.r := { [var, tf()] : var in {'I','O'} } + { ['P', {0,1}] };
+  d.t_s := { [{['I', false], ['P', 0]}, {['P', 1]}], // eg P_t2 = ~I xor P_t1
+             [{['I', false], ['P', 1]}, {['P', 0]}], 
+             [{['I',  true], ['P', 0]}, {['P', 0]}], 
+             [{['I',  true], ['P', 1]}, {['P', 1]}]
+           };
+  d.t_o := { [ {['P', 0]}, {['O',  true]} ],  // O = ~P
+             [ {['P', 1]}, {['O', false]} ] };
+  return d;
+};
+
+b1 := cachedProcedure() {
+  b   := causal_markov_model.new();
+  b.u := { 'U' };
+  b.v := { 'V_P1', 'V_P2', 'O' };
+  b.r := { [var, tf()] : var in {'V_P1', 'V_P2', 'O'} } + {['U',{1,2,3}]};
+  /* P = V_P1 <-> V_P2
+     O = ~ P
+     O = ~ (V_P1 <-> V_P2) 
+  */ 
+  b.f['O'] := proc2func(procedure(cmm_st) { 
+                          return !(cmm_st['V_P1'] == cmm_st['V_P2']); 
+                        }, b.poss_states());
+  /* P_t2 = I xor P_t1
+          = U xor (V_P1 <-> V_P2)     
+    t1  U V_P1 V_P2 P  ~I  t2  P  V_P1  V_P2
+        1   F   F   T   T      F   T    F
+        1   F   T   F   T      T   T    T
+        1   T   F   F   T      T   F    F
+        1   T   T   T   T      F   F    T
+        2   F   F   T   T      F    
+        2   F   T   F   T      T
+        2   T   F   F   T      T
+        2   T   T   T   T      F
+        3   F   F   T   F      T   F    F    
+        3   F   T   F   F      F   T    F
+        3   T   F   F   F      F   F    T
+        3   T   T   T   F      T   T    T
+
+    two ways for U to be false {1,2}. {3} is truth
+  */
+  b.f['V_P1'] := proc2func(procedure(cmm_st) { 
+                   if (cmm_st['U'] == 3) {
+                     return cmm_st['V_P2'];
+                   } else {
+                     return !cmm_st['V_P1'];
+                   }
+                 }, b.poss_states());
+  b.f['V_P2'] := proc2func(procedure(cmm_st) {
+                   if (cmm_st['U'] == 3) {
+                     return cmm_st['V_P1'];
+                   } else {
+                     return cmm_st['V_P2'];
+                   }
+                 }, b.poss_states());
+  b.n := 3;
+  return b;
+};
+
+plf1 := cachedProcedure() {
+  return { [{ ['U', 1]                         }, { ['I', false] }],
+           [{ ['U', 2]                         }, { ['I', false] }],  
+           [{ ['U', 3]                         }, { ['I',  true] }],  
+           [{ ['V_P1', false], ['V_P2', false] }, { ['P',     1] }],
+           [{ ['V_P1', false], ['V_P2',  true] }, { ['P',     0] }],
+           [{ ['V_P1',  true], ['V_P2', false] }, { ['P',     0] }],
+           [{ ['V_P1',  true], ['V_P2',  true] }, { ['P',     1] }],
+           [{ ['O', false]                     }, { ['O', false] }],  
+           [{ ['O',  true]                     }, { ['O',  true] }]
+         };
+};
+
+pf1 := cachedProcedure() {
+  return d1().plf_to_pf(b1(), plf1());
+};
+
+test_poss_states := procedure() {
+  assert(d1().poss_states() == {
+           {["I", false], ["O", false], ["P", 0]}, 
+           {["I", false], ["O", false], ["P", 1]}, 
+           {["I", false], ["O",  true], ["P", 0]}, 
+           {["I", false], ["O",  true], ["P", 1]}, 
+           {["I",  true], ["O", false], ["P", 0]}, 
+           {["I",  true], ["O", false], ["P", 1]}, 
+           {["I",  true], ["O",  true], ["P", 0]}, 
+           {["I",  true], ["O",  true], ["P", 1]}
+         }, "Error: poss_states is incorrect.");
+  print('[ok] poss_states');
+};
+test_poss_states();
+
+test_commutes := procedure() {
+  // print('pf ' + pf1());  
+
+  // This may take a while so it's commented out but it worked last time.
+  // assert(d1().commutes(pf1(), b1()) == true, "Error: commutes true is incorrect.");
+  // print('[ok] commutes true');
+  print('[..] commutes true');
+};
+test_commutes();
+
+test_lf_commutes := procedure() {
+  d := d1();
+  d.cached_f := pf1();
+  assert(d.lf_commutes(plf1(), b1()) == true, 
+         "Error: lf_commutes true is incorrect");
+  print('[ok] lf_commutes true');
+
+  plf := plf1();
+  plf[ {['O', false]} ] := { ['O', true] };
+  assert(d.lf_commutes(plf, b1()) == false, 
+         "Error: lf_commutes false is incorrect");
+  print('[ok] lf_commutes false');
+};
+test_lf_commutes(); 
+
+d2 := procedure() {
+  d := d1();
+  d.cached_f  := pf1();
+  d.cached_lf := plf1();
+  return d;
+};
+
+test_is_implemented_by := procedure() {
+  assert(d2().is_implemented_by(b1()) == true,
+         "Error: is_implemented_by is incorrect.");
+  print('[ok] is_implemented_by');
+};
+test_is_implemented_by();
+
+test_lf_inv := procedure() {
+  assert(d2().lf_inv(b1())[ {['P',1]} ] == {
+           { ['V_P1', false], ['V_P2', false] }, 
+           { ['V_P1',  true], ['V_P2',  true] }
+         }, "Error: lf_inv is incorrect");
+  print('[ok] lf_inv');
+};
+test_lf_inv(); 
+test_plf_to_pf := procedure() { test_lf_inv(); };
+
+test_lf_inv_at := procedure() {
+  assert(d2().lf_inv_at(b1(), 2)[ {['P',1]} ] == {
+           { ['V_P1_t2', false], ['V_P2_t2', false] }, 
+           { ['V_P1_t2',  true], ['V_P2_t2',  true] }
+         }, "Error: lf_inv_at is incorrect");
+  print('[ok] lf_inv_at');
+};
+test_lf_inv_at(); 
+
+test_lf_cm := procedure() {
+  assert(d2().lf_cm(b1(), {['V_P1_t2',false],['V_P2_t2',false]}) == {['P',1]},
+         "Error: lf_cm is incorrect");
+  print('[ok] lf_cm');
+};
+test_lf_cm(); 
+
+test_lf_cm_vs := procedure() {
+  assert(d2().lf_cm_vs(b1(), {['V_P1_t2',false],['V_P2_t2',false] }) == {'P'},
+         "Error: lf_cm_vs is incorrect");
+  print('[ok] lf_cm_vs');
+};
+test_lf_cm_vs(); 
+
+test_lf_cm_p_inv := procedure() {
+  assert(d2().lf_cm_p_inv(b, { ['V_P1_t2', false], ['V_P2_t2', false] }) == 'A',
+         "Error: lf_cm_p_inv is incorrect");
+  print('[ok] p_inv');
+  print('[ok] lf_cm_p_inv');
+};
+test_lf_cm_p_inv();
+test_p_inv := procedure() { test_lf_cm_p_inv(); };
+
+test_commutes_f := procedure() {
+  // print('b.f[O] ' + b.f['O']);
+  b := b1();
+  b.f['O'] := proc2func(procedure(cmm_st) { 
+                          return cmm_st['V_P1'] && cmm_st['V_P2']; 
+                        }, b.poss_states());
+  // print('b.f[O] ' + b.f['O']);
+  // bs := {["O", true], ["U", 3], ["V_P1", true], ["V_P2", true]};
+  // print('pf[bs] ' + pf[bs]);
+  // print('t()[pf[bs]] ' + d.t()[pf[bs]]);
+  // print('b.resp ' + b.response(b.v, bs));
+  // print('pf[b.resp] ' + pf[b.response(b.v, bs)]);
+
+  // assert(d1().commutes(pf1(), b) == false, "Error: commutes false is incorrect.");
+  // print('[ok] commutes false');
+  print('[..] commutes false');
+};
+test_commutes_f();
+
+test_drop_i := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'P(I_1)', 'P(I_2)' };
+  ds  := { ['P(A)', 1], ['P(I_1)', true], ['P(I_2)', false], ['M1', true] };
+  assert(d.drop_i(ds) == { ['P(A)', 1], ['M1', true] },
+         "Error: drop_i is incorrect.");
+  print('[ok] drop_i');
+};
+test_drop_i();
+
+/*   
+    I--P--Y--X--O
+     `--U-'
+         `--Z--W
+*/
+test_m2s_are_valid := procedure() {
+  d    := decision_algorithm.new();
+  d.i  := { 'I' };
+  d.p  := { ['A', 'P'] };
+  d.u  := { ['B', 'U'] };
+  d.m2 := { 'X', 'Y', 'Z' };
+  d.o  := { 'W', 'O' };
+  d.r  := { [var, tf()] : var in d.i + d.s() };
+  ts_proc := procedure(is_state) {
+    return { ['P', !is_state['I']], ['U', is_state['I']], 
+             ['X', !is_state['Y']], 
+             ['Y', is_state['P'] && is_state['U']], 
+             ['Z', is_state['U'] == 0] };
+  };
+  d.t_s := proc2func(ts_proc, d.poss_is_states());
+  to_proc := procedure(p_u_m2) {
+    return { ['O', p_u_m2['X']], ['W', p_u_m2['W']] };
+  };
+  d.t_o := proc2func(to_proc, { d.just_p_u_m2(is) : is in d.poss_is_states() });
+  assert(d.m2s_are_valid() == true, "Error: is incorrect.");
+  print('[ok] m2s_are_valid true');
+
+  // I------X
+  ts_proc2 := procedure(is_state) {
+    return { ['P', !is_state['I']], ['U', is_state['I']], 
+             ['X', !is_state['Y'] || is_state['I']], 
+             ['Y', is_state['P'] && is_state['U']], 
+             ['Z', is_state['U'] == 0] };
+  };
+  d.t_s := proc2func(ts_proc2, d.poss_is_states());
+  assert(d.m2s_are_valid() == false, "Error: is incorrect.");
+  print('[ok] m2s_are_valid false');
+
+  // W-----U
+  ts_proc3 := procedure(is_state) {
+    return { ['P', !is_state['I']], ['U', is_state['I'] && is_state['W']], 
+             ['X', !is_state['Y']], 
+             ['Y', is_state['P'] && is_state['U']], 
+             ['Z', is_state['U'] == 0] };
+  };
+  d.t_s := proc2func(ts_proc2, d.poss_is_states());
+  assert(d.m2s_are_valid() == false, "Error: is incorrect.");
+  print('[ok] m2s_are_valid false 2');
+};
+test_m2s_are_valid();
+
+/*
+test_no_e_in_u := procedure() {
+  d := decision_algorithm.new();
+  assert(d.no_e_in_u() == ,
+         "Error: no_e_in_u is incorrect.");
+  print('[ok] no_e_in_u false');
+
+  assert(d.no_e_in_u() == ,
+         "Error: no_e_in_u is incorrect.");
+  print('[ok] no_e_in_u true');
+};
+test_no_e_in_u();
+*/
+
+/* test_i_ref := procedure() {
+  print(d1().i_ref(b2(), b2())); // out of memory
+//  assert(d1().i_ref(b1(), b1()) == 
+//         "Error: i_ref is incorrect.");
+  print('[  ] i_ref');
+};
+test_i_ref();
+*/
+
+test_str_exprs := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'P(I_1)' };
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['I_1', 'P(I_1)'],
+           [And('A', 'B'), 'P(A^B)'], 
+           [BoxArrow('A', 'B'), 'P(A[]->B)'] };
+  assert(d.str_exprs() == { ['A',0] , ['B',0] },
+         "Error: is incorrect.");
+  print('[ok] str_exprs');
+};
+test_str_exprs();
+
+test_preds := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'P(I_1)' };
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['I_1', 'P(I_1)'],
+           [And('A', 'B'), 'P(A^B)'], [Q('A'), 'P(Q(A))'], 
+           [R('A','B'), 'P(R(A,B))'],
+           [BoxArrow('A', 'B'), 'P(A[]->B)'] };
+  assert(d.preds() == { ['Q', 1], ['R', 2] },
+         "Error: is incorrect.");
+  print('[ok] preds arity');
+};
+test_preds();
+
+w1 := procedure() {
+  w := causal_markov_model.new();
+  w.u := {};
+  w.v := { 'X', 'Y' };
+  w.n := 2;
+  w.r := { ['X', tf()], ['Y', tf()] };
+  w.f := { ['X', { [{['X', false], ['Y', false]}, false],
+                   [{['X', false], ['Y',  true]},  true],
+                   [{['X',  true], ['Y', false]},  true],
+                   [{['X',  true], ['Y',  true]},  true]
+                 }],
+           ['Y', { [{['X', false], ['Y', false]},  true],
+                   [{['X', false], ['Y',  true]},  true],
+                   [{['X',  true], ['Y', false]},  true],
+                   [{['X',  true], ['Y',  true]}, false]
+                 }]
+         };
+}; 
+
+test_poss_base_expr_refs := procedure() {
+  d := decision_algorithm.new();
+  w := w1();
+  // print(d.poss_base_expr_refs(w, { ['A', 0] }));
+  // print(d.poss_base_expr_refs(w, { ['A', 0], [Q('A'), 1], [R('A','B'), 2] }));
+  // print(d.poss_base_expr_refs(w, { ['A', 0], [Q('A'), 1] }));
+  // 2 ** 81 subsets
+  // assert(d.poss_base_expr_refs(w, { 'A', Q('A'), R('A','B') }),
+  //        "Error: is incorrect.");
+  // print('[ok] poss_base_expr_refs');
+};
+test_poss_base_expr_refs();
+
+/*
+test_poss_base_refs := procedure() {
+  d := decision_algorithm.new();
+  d.cached_lf := { };
+  w := w1();
+  w_sts := w1.cm().poss_states();
+  pbers := { 
+    { ['A', { w_sts[1], w_sts[2] }],
+      ['Q', { [{ w_sts[1], w_sts[2] }], 
+              [{ w_sts[4] }] }] },
+    { ['A', { w_sts[3], w_sts[4] }],
+      ['Q', { [{ w_sts[2], w_sts[3] }], 
+              [{ w_sts[5] }] }] }
+  };  
+  // assert(d.poss_base_refs(w, b, pbers) == ,
+  //         "Error: poss_base_refs is incorrect.");
+  print('[ok] poss_base_refs');
+};
+// test_poss_base_refs();
+*/
+
+test_rr := procedure() {
+  d := decision_algorithm.new();
+  b := causal_markov_model.new();
+  b.v := { 'V_1' };
+  b.r := { ['V_1', tf()] };
+  b.f := { 
+    ['V_1', { [{ ['V_1', false] },  true],
+              [{ ['V_1',  true] }, false] 
+            }] 
+  };
+  b.n := 3; // bug when set to 2?
+  // rr(expr, [w, b, atom_ref, ti, context])
+  assert(d.rr('A', [b, b, {}, 1, { ['A', { {['V_1_t1', true]} }] }]) == 
+                                         { {['V_1_t1', true]} }, 
+         "Error: rr context is incorrect.");    
+  print('[ok] rr context');
+
+  d.i := { 'P(I_1)' };
+  d.p := { ['I_1','P(I_1)'] };
+  b.a := [ {['V_1_t1',  true]},
+           {['V_1_t2', false]},
+           {['V_1_t3',  true]} ];
+  d.cached_lf := {
+    [ {['V_1', false]}, {['P(I_1)', false]} ],
+    [ {['V_1',  true]}, {['P(I_1)',  true]} ]
+  };
+  all_sts := b.cm().poss_states();
+  assert(d.rr('I_1', [b, b, {}, 1, {}]) == 
+           compat_compl_sts( {['V_1_t1', true]}, all_sts ),
+         "Error: rr i is incorrect.");    
+  print('[ok] rr i');
+
+  assert(d.rr(At_t('I_1', -1), [b, b, {}, 2, {}]) == 
+           compat_compl_sts( {['V_1_t1', true]}, all_sts ),
+         "Error: rr At_t is incorrect.");    
+  print('[ok] rr At_t');
+
+  atom_ref := { ['B', compat_compl_sts( {['V_1_t1', true]}, all_sts )],
+                ['IsAorB', { [compat_compl_sts({['V_1_t1', true]}, all_sts)], 
+                             [compat_compl_sts({['V_1_t2', true]}, all_sts)] }] 
+              };
+  assert(d.rr('B', [b, b, atom_ref, 1, {}]) == 
+           compat_compl_sts({['V_1_t1', true]}, all_sts) &&
+         d.rr('IsAorB', [b, b, atom_ref, 1, {}]) == { 
+           [compat_compl_sts({['V_1_t1', true]}, all_sts)], 
+           [compat_compl_sts({['V_1_t2', true]}, all_sts)] 
+         }, 
+         "Error: rr atom_ref is incorrect.");    
+  print('[ok] rr atom_ref');
+
+  atom_ref := { ['C', compat_compl_sts( {['V_1_t1', true]}, all_sts )],
+                ['D', compat_compl_sts( {['V_1_t2', true]}, all_sts )] };
+  assert(d.rr(And('C', 'D'), [b, b, atom_ref, 1, {}]) == 
+           compat_compl_sts({['V_1_t1', true], ['V_1_t2', true]}, all_sts), 
+         "Error: rr And is incorrect");
+  print('[ok] rr And');
+  
+  assert(d.rr(Or('C', 'D'), [b, b, atom_ref, 1, {}]) == 
+           compat_compl_sts({['V_1_t1', true]}, all_sts) + 
+           compat_compl_sts({['V_1_t2', true]}, all_sts), 
+         "Error: rr Or is incorrect");
+  print('[ok] rr Or');
+
+  assert(d.rr(Not('C'), [b, b, atom_ref, 1, {}]) == 
+           compat_compl_sts({['V_1_t1', false]}, all_sts),
+         "Error: rr Not is incorrect");
+  print('[ok] rr Not');
+
+  assert(d.rr(Implies('C', 'D'), [b, b, atom_ref, 1, {}]) == 
+           compat_compl_sts({['V_1_t1', false]}, all_sts) + 
+           compat_compl_sts({['V_1_t2', true]}, all_sts), 
+         "Error: rr Implies is incorrect");
+  print('[ok] rr Implies');
+
+  print('[  ] rr');
+};
+test_rr();
+
+test_true_p := procedure() {
+  d := decision_algorithm.new();
+  b_event := {['V', true]};
+  ref_i := { [ b_event, { {['X', true]}, {['Y', true]} }] };
+  w := causal_markov_model.new();  
+  // TODO: rewrite to use states rather than events
+// or just fold into sq_err
+  w.a := [{ ['Y', true] }];
+  assert(d.true_p(w, ref_i, b_event) == 1, "Error: true_p true is incorrect.");
+  print('[ok] true_p true');
+
+  w.a := [{ ['X', true] }];
+  assert(d.true_p(w, ref_i, b_event) == 1, "Error: true_p true is incorrect.");
+  print('[ok] true_p true 2');
+
+  w.a := [{ ['X', false] }];
+  assert(d.true_p(w, ref_i, b_event) == 0, "Error: true_p false is incorrect.");
+  print('[ok] true_p false');
+};
+//test_true_p();
+
+test_sq_err := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'] };
+  d.cached_lf := { [ {['V',  true]}, {['P(A)', 0.75]} ],
+                   [ {['V', false]}, {['P(A)', 0.33]} ] };
+  b := causal_markov_model.new();
+  b.a := [{['V_t1', true]}, {['V_t2', false]}];
+  ref_i := { [{['V_t1',  true]}, { {['V_t1', true], ['V_t2', false]},
+                                   {['V_t1', true], ['V_t2',  true]} }],
+             [{['V_t2', false]}, { {['V_t1', true], ['V_t2', false]},
+                                   {['V_t1', true], ['V_t2',  true]} }] };
+  assert(abs(d.sq_err(b, b, ref_i) - 0.5114) < 0.01,
+         "Error: sq_err is incorrect.");
+  print('[ok] true_p');
+  print('[ok] sq_err');
+};
+test_sq_err();
+test_true_p := procedure() { test_sq_err(); };
+
+b2 := procedure() {
+  b := b1();
+  b.n := 2;
+  b.a := [
+    { ['U_t1', 1], ['V_P1_t1', false], ['V_P2_t1', false], ['O_t1',  true] },
+    { ['U_t2', 2], ['V_P1_t2',  true], ['V_P2_t2', false], ['O_t2', false] }
+  ];
+  return b;
+};
+
+test_ref_expr := procedure() {
+  d := d2();
+  b := b2();
+  bs1 := {{['U', 1], ['V_P1_t1', false], ['V_P2_t1', false], ['O', false]}};
+  d.cached_ref := {
+    [ {['V_P1_t1', false], ['V_P2_t1', false]}, bs1 ]
+  };
+  assert(d.ref_expr(b, b, 1, 'A') == bs1,
+         "Error: ref_expr is incorrect.");
+  print('[ok] ref_expr');
+};
+test_ref_expr();
+
+test_actual_p_events := procedure() {
+  assert(d2().actual_p_events(b2()) == { 
+           { ['V_P1_t1', false], ['V_P2_t1', false] },
+           { ['V_P1_t2',  true], ['V_P2_t2', false] }
+         },
+         "Error: actual_p_events is incorrect.");
+  print('[ok] actual_p_events');
+};
+test_actual_p_events();
+
+test_prob_states := procedure() {
+  assert(d2().prob_states(b2()) == { [1, {['P', 1]}], [2, {['P', 0]}] },
+         "Error: prob_states is incorrect.");
+  print('[ok] prob_states');
+  print('[ok] prob_states_t');
+};
+test_prob_states();
+test_prob_states_t := procedure() { test_prob_states(); };
+
+d3 := procedure() {
+  d := decision_algorithm.new();
+  d.u := { ['A', 'U(A)'] };
+  d.o := { 'O' };
+  d.n := [{ ['e', {['B','E1(B)']}], ['m2',{'M2_1'}], ['o',{'O_1'}] },
+          { ['e', {['C','E2(C)']}], ['m2',{'M2_2'}], ['o',{'O_2'}] }];
+  return d;
+};
+
+test_eo := procedure() {
+  assert(d3().eo() == { [{ ['A',  'U(A)'] }, { 'O' }], 
+                        [{ ['B', 'E1(B)'] }, {'O_1'}], 
+                        [{ ['C', 'E2(C)'] }, {'O_2'}] },
+         "Error: eo is incorrect.");
+  print('[ok] eo');
+};
+test_eo();
+
+test_instr_irrat := procedure() {
+  print('test instr irrat');
+  d := decision_algorithm.new();
+  d.o := { 'O' };
+  d.p := { ['A', 'P(A)'], 
+           [Not('A'), 'P(~A)'], 
+           [BoxArrow('A', 'B'), 'P(A []-> B)'],
+           [BoxArrow(Not('A'), 'B'), 'P(~A []-> B)'] };  
+  d.u := { ['B', 'U(B)'] };
+  d.r := { ['P(A)', {0.3, 0.7}], 
+           ['P(~A)', {0.1, 0.9}],
+           ['P(A []-> B)', {0.2, 0.8}], 
+           ['P(~A []-> B)', {0.25, 0.75}], 
+           ['U(B)', { 5 }], ['O', tf()] };
+  b := causal_markov_model.new();
+  b.u := {};
+  b.v := { 'V_A', 'V_~A', 'V_A_[]->_B', 'V_~A_[]->_B', 'V_O', 'V_U' };
+  b.r := { [var, tf()] : var in b.v };
+  false_func := proc2func(procedure(bs) { return false; }, b.poss_states()); 
+  print('false func');
+  b.f := {
+    ['V_A', false_func],
+    ['V_~A', false_func],
+    ['V_A_[]->_B', false_func],
+    ['V_~A_[]->_B', false_func],
+    ['V_O', false_func],
+    ['V_U', false_func]
+  };
+  b.n := 3;
+  b.a := [
+    { ['V_A_t1',  true], ['V_~A_t1', false], 
+      ['V_~A_[]->_B_t1', false], ['V_~A_[]->_B_t1', true], 
+      ['V_O_t1', false], ['V_U_t1', false] }, 
+    { ['V_A_t2',  true], ['V_~A_t2', false], 
+      ['V_~A_[]->_B_t2', false], ['V_~A_[]->_B_t2', true], 
+      ['V_O_t2', false], ['V_U_t2', false] }, 
+    { ['V_A_t3',  true], ['V_~A_t3', false], 
+      ['V_~A_[]->_B_t3', false], ['V_~A_[]->_B_t3', true], 
+      ['V_O_t3', false], ['V_U_t3', false] } 
+  ];
+  d.cached_lf := {  
+    [{['V_A', false]},         {['P(A)', 0.3]}        ],
+    [{['V_A',  true]},         {['P(A)', 0.7]}        ],
+    [{['V_~A', false]},        {['P(~A)', 0.1]}       ],
+    [{['V_~A',  true]},        {['P(~A)', 0.9]}       ],
+    [{['V_A_[]->_B', false]},  {['P(A []-> B)', 0.2]} ],
+    [{['V_A_[]->_B',  true]},  {['P(A []-> B)', 0.8]} ],
+    [{['V_~A_[]->_B', false]}, {['P(~A []-> B)', 0.2]}],
+    [{['V_~A_[]->_B',  true]}, {['P(~A []-> B)', 0.8]}],
+    [{['V_O', false]},         {['O', false]}         ],
+    [{['V_O',  true]},         {['O',  true]}         ],
+    [{['V_U', false]},         {['U(B)', false]}      ],
+    [{['V_U',  true]},         {['U(B)',  true]}      ]
+  };
+  print('cached lf');
+  d.cached_f := d.plf_to_pf(b, d.cached_lf);
+  print('cached f');
+  b_cm := b.cm();
+  print('b cm');
+  b_cm_poss_states := b_cm.poss_states();
+  print(#b_cm_poss_states);
+  o_t2 := compat_compl_sts({['V_O_t2', true]}, b_cm_poss_states); 
+  print('o_t2');
+  o_t3 := compat_compl_sts({['V_O_t3', true]}, b_cm_poss_states); 
+  no_t2 := compat_compl_sts({['V_O_t2', false]}, b_cm_poss_states); 
+  no_t3 := compat_compl_sts({['V_O_t3', false]}, b_cm_poss_states); 
+  print('no_t3');
+  d.cached_ref := {
+    [{['V_A_t1', true ]}, o_t2],
+    [{['V_A_t1', false]}, o_t2],
+
+    [{['V_~A_t1', true ]}, no_t2],
+    [{['V_~A_t1', false]}, no_t2],
+
+    [{['V_A_t2', true ]}, o_t3],
+    [{['V_A_t2', false]}, o_t3],
+
+    [{['V_~A_t2', true ]}, no_t3],
+    [{['V_~A_t2', false]}, no_t3]
+
+  };
+  // print(d.instr_irrat(b, b));
+  // assert(d.instr_irrat() == ,
+  //       "Error: instr_irrat is incorrect.");
+  print('[.?] instr_irrat');
+};
+// test_instr_irrat();
+
+test_max_p_dist := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'] };
+  thirds := { 0, 0.33, 0.66, 1 };
+  d.r := { ['P(A)', thirds], ['P(B)', thirds] };
+  b := causal_markov_model.new();
+  b.v := { 'V_A', 'V_B' };
+  four := { 1,2,3,4 };
+  b.r := { ['V_A', four], ['V_B', four] };
+  d.cached_f := { 
+    [{['V_A', 1], ['V_B', 1]}, {['P(A)',    0], ['P(B)',    0]}],
+    [{['V_A', 1], ['V_B', 2]}, {['P(A)',    0], ['P(B)', 0.33]}],
+    [{['V_A', 1], ['V_B', 3]}, {['P(A)',    0], ['P(B)', 0.66]}],
+    [{['V_A', 1], ['V_B', 4]}, {['P(A)',    0], ['P(B)',    1]}],
+    [{['V_A', 2], ['V_B', 1]}, {['P(A)', 0.33], ['P(B)',    0]}],
+    [{['V_A', 2], ['V_B', 2]}, {['P(A)', 0.33], ['P(B)', 0.33]}],
+    [{['V_A', 2], ['V_B', 3]}, {['P(A)', 0.33], ['P(B)', 0.66]}],
+    [{['V_A', 2], ['V_B', 4]}, {['P(A)', 0.33], ['P(B)',    1]}],
+    [{['V_A', 3], ['V_B', 1]}, {['P(A)', 0.66], ['P(B)',    0]}],
+    [{['V_A', 3], ['V_B', 2]}, {['P(A)', 0.66], ['P(B)', 0.33]}],
+    [{['V_A', 3], ['V_B', 3]}, {['P(A)', 0.66], ['P(B)', 0.66]}],
+    [{['V_A', 3], ['V_B', 4]}, {['P(A)', 0.66], ['P(B)',    1]}],
+    [{['V_A', 4], ['V_B', 1]}, {['P(A)',    1], ['P(B)',    0]}],
+    [{['V_A', 4], ['V_B', 2]}, {['P(A)',    1], ['P(B)', 0.33]}],
+    [{['V_A', 4], ['V_B', 3]}, {['P(A)',    1], ['P(B)', 0.66]}],
+    [{['V_A', 4], ['V_B', 4]}, {['P(A)',    1], ['P(B)',    1]}]
+  };
+  b.a := [{['V_A_t1', 2], ['V_B_t1', 3]}];
+  assert(d.max_p_dist(b, 1) == 1.33,
+         "Error: max_p_dist is incorrect.");
+  print('[ok] max_p_dist');
+};
+test_max_p_dist();
+
+test_poss_cms := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['C', 'P(C)'] };
+  d.r := { [var, tf()] : var in range(d.p) };
+  assert(exists(cm in d.poss_cms() | 
+           cm.f == {
+             ["P(A)", { [{["P(B)", false]},  true], 
+                        [{["P(B)",  true]}, false] }], 
+             ["P(B)", { [{["P(C)", false]}, false], 
+                        [{["P(C)",  true]},  true] }]
+           }) &&
+         exists(cm in d.poss_cms() | 
+           cm.f == {
+             ["P(A)", { [{["P(B)", false]}, false], 
+                        [{["P(B)",  true]}, false]} ], 
+             ["P(C)", { [{["P(A)", false]},  true], 
+                        [{["P(A)",  true]},  true] }]
+           }),
+         "Error: poss_cms is incorrect.");
+  print('[ok] poss_cms');
+};
+test_poss_cms();
+test_poss_cms_from_l      := procedure() { test_poss_cms(); };
+test_poss_cms_from_p_pars := procedure() { test_poss_cms(); };
+
+test_e_func := procedure() {
+  d := d3();
+  ds := { ['U(A)', 5], ['E1(B)', 3], ['E2(C)', 8] };
+  assert(d.e_func(ds, 0) == { ['U(A)',  5] } && 
+         d.e_func(ds, 1) == { ['E1(B)', 3] } && 
+         d.e_func(ds, 2) == { ['E2(C)', 8] },
+         "Error: e_func is incorrect.");
+  print('[ok] e_func');
+};
+test_e_func();
+
+test_ue := procedure() {
+  d := d3();
+  assert(d.ue(0) == d.u && d.ue(1) == d.n[1]['e'] && d.ue(2) == d.n[2]['e'],
+         "Error: ue is incorrect.");
+  print('[ok] ue');
+};
+test_ue();
+
+test_ue_base_exprs := procedure() {
+  d := d3();
+  assert(d.ue_base_exprs(0) == { 'A' } && 
+         d.ue_base_exprs(1) == { 'B' } &&
+         d.ue_base_exprs(2) == { 'C' }, 
+         "Error: ue_base_exprs is incorrect.");
+  print('[ok] ue_base_exprs');
+};
+test_ue_base_exprs();
+
+/*
+test_state_space := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'] };
+  assert(d.state_space(range(d.p)) == { 
+           {Not('A'), Not('B')},
+           {Not('A'),     'B' },
+           {    'A' , Not('B')},
+           {    'A' ,     'B' }
+         },
+         "Error: state_space is incorrect.");
+  print('[ok] state_space');
+  assert(d.event_space(range(d.p)) == d.state_space(range(d.p)) + {
+           { Not('A') }, { 'A' }, { Not('B') }, { 'B' }, {}
+         },
+         "Error: event_space is incorrect.");
+  print('[ok] event_space');
+  // print(d.expr_space(d.state_space(range(d.p))));
+  assert(d.expr_space( d.state_space(range(d.p)) ) == {
+           And("A",      "B"), And(    "A" , Not("B")), 
+           And("B", Not("A")), And(Not("A"), Not("B"))
+         },
+         "Error: expr_space is incorrect.");
+  print('[ok] expr_space');
+
+  d.p[And("A", "B")] := 'P(A^B)';
+  d.p[And("A", Not("B"))] := 'P(A^~B)';
+  d.p[And("B", Not("A"))] := 'P(B^~A)';
+  d.p[And(Not("A"), Not("B"))] := 'P(~A^~B)';
+  d.r := { ['P(A^B)', {0,1}], ['P(A^~B)', {0,1}], 
+           ['P(B^~A)', {0,1}], ['P(~A^~B)', {0,1}] };
+  assert({["P(A^B)", 1], ["P(A^~B)", 0], ["P(B^~A)", 0], ["P(~A^~B)", 0]}
+           in d.poss_p_vs({'P(A)', 'P(B)'}),
+         "Error: poss_p_vs is incorrect");
+  print('[ok] poss_p_vs');
+};
+test_state_space();
+test_event_space := procedure() { test_state_space(); };
+test_expr_space := procedure() { test_expr_space(); };
+test_poss_p_vs := procedure() { test_poss_p_vs(); };
+*/
+
+// deprecated?
+/*
+test_p_of_vs := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['C', 'P(C)'] };
+  cm := causal_model(u, v, r, f, om);
+  cm.u := { 'P(A)', 'P(B)' };
+  cm.v := { 'P(C)' };
+  cm.r := { [var, tf()] : var in cm.u + cm.v };
+  cm.f := { 
+    ['P(C)', { [ {['P(A)', false], ['P(B)', false]}, false],
+               [ {['P(A)', false], ['P(B)',  true]},  true],
+               [ {['P(A)',  true], ['P(B)', false]},  true],
+               [ {['P(A)',  true], ['P(B)',  true]},  true]
+             }]
+  };
+  assert(d.p_of_vs(cm, { ['P(A)', 0.33], ['P(B)', 0.5] }) == ,
+         "Error: p_of_vs is incorrect.");
+  print('[ok] p_of_vs');
+};
+test_p_of_vs();
+*/
+
+test_coh_pcms := procedure() {
+  cm := causal_model.new();
+  cm.u := { 'A' };
+  cm.v := { 'B' };
+  cm.r := { ['A', tf()], ['B', tf()] };
+  cm.f := { ['B', { [{ ['A', false] },  true],
+                    [{ ['A',  true] }, false] }] };
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'] };
+  d.r := { ['P(A)', { 0, 1 }] };
+//  print(d.coh_pcms(cm));
+//  assert(d.coh_pcms(cm) == ,
+//         "Error: coh_pcms is incorrect.");
+  print('[.?] coh_pcms');
+};
+// test_coh_pcms();
+
+/* Template
+test_ := procedure() {
+  d := decision_algorithm.new();
+  assert(d.() == ,
+         "Error:  is incorrect.");
+  print('[ok] ');
+};
+test_();
+*/
+
+print(' ');
+
+test_expr_to_p_funcs := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'] };  
+  assert(d.expr_to_p_funcs(Implies('A', 'B'), {'A', 'B' }) == {
+           {["P(A)", false], ["P(B)", false]}, 
+           {["P(A)", false], ["P(B)",  true]}, 
+           {["P(A)",  true], ["P(B)",  true]} 
+         }, "Error: expr_to_p_funcs is incorrect.");
+  print('[ok] expr_to_p_funcs');
+  
+  d.p[Implies('A', 'B')] := 'P(A->B)';
+  d.p[Not(And('A', Not('B')))] := 'P(~(A^~B))';
+  assert(d.equiv_p_expr(d.p, d.cp, 'P(A->B)', 'P(~(A^~B))') == true,
+         "Error: equiv_p_expr is incorrect");
+  print('[ok] equiv_p_expr true');
+};
+test_expr_to_p_funcs();
+
+test_sum_p := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['C', 'P(C)'] };
+  p1 := { ['P(A)', 0.6], ['P(C)', 0.3] };
+  p2 := { ['P(B)', 0.2], ['P(C)', 0.5] };
+  assert(d.sum_p(p1, p2) == { ['P(A)', 0.6], ['P(B)', 0.2], ['P(C)', 0.8] },
+         "Error: sum_p is incorrect.");
+  print('[ok] sum_p');
+};
+test_sum_p();
+
+test_add_p_distr := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'], ['C', 'P(C)'] };
+  d.cp := { [['C', 'A'], 'P(C|A)'], [['C', 'B'], 'P(C|B)'] };
+  p_cp1 := [{ ['P(A)', 0.2] }, { ['P(C|A)', 0.3], ['P(C|B)', 0.4] }];
+  p_cp2 := [{ ['P(A)', 0.4] }, { ['P(C|A)', 0.1], ['P(C|B)', 0.3] }];
+  p_cp := d.add_p_distr(p_cp1, p_cp2);
+  assert((p_cp[2])['P(C|A)'] == 0.4 && (p_cp[2])['P(C|B)'] == 0.7 && 
+         (p_cp[1])['P(A)'] - 0.6 < 0.01,
+         "Error: add_p_distr is incorrect.");
+  print('[ok] add_p_distr');
+};
+test_add_p_distr();
+
+test_prob_distance := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'] };
+  d.cp := { [['B', 'A'], 'P(B|A)'] };
+  pp1 := { ['P(A)', 0.4], ['P(B)', 0.5], ['P(B|A)', 0.6] };
+  pp2 := { ['P(A)', 0.1], ['P(B)', 0.9], ['P(B|A)', 0.2] };
+  assert(d.prob_distance(d.p, d.cp, pp1, pp2) == 1.1,
+         "Error: prob_distance is incorrect.");
+  print('[ok] prob_distance');
+};
+test_prob_distance();
+
+test_poss_io_states := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'P(I)' };
+  d.o := { 'O' };
+  d.r := { ['P(I)', {0,1}], ['O', tf()]};
+  assert(d.poss_io_states() == {
+          { ['P(I)', 0], ['O', false] },
+          { ['P(I)', 0], ['O',  true] },
+          { ['P(I)', 1], ['O', false] },
+          { ['P(I)', 1], ['O',  true] }
+         },
+         "Error: poss_io_states is incorrect.");
+  print('[ok] poss_io_states');
+};
+test_poss_io_states();
+
+test_poss_m_states := procedure() {
+  d := decision_algorithm.new();
+  d.m := { 'M1', 'M2' };
+  d.r := { ['M1', tf()], ['M2', tf()] };
+  assert(d.poss_m_states() == { 
+           { ['M1', false], ['M2', false] },
+           { ['M1', false], ['M2',  true] },
+           { ['M1',  true], ['M2', false] },
+           { ['M1',  true], ['M2',  true] }
+         },
+         "Error: poss_m_states is incorrect.");
+  print('[ok] poss_m_states');
+};
+test_poss_m_states();
+
+test_poss_o_states := procedure() {
+  d := decision_algorithm.new();
+  d.o := { 'O1', 'O2' };
+  d.r := { ['O1', tf()], ['O2', tf()] };
+  assert(d.poss_o_states() == { 
+           { ['O1', false], ['O2', false] },
+           { ['O1', false], ['O2',  true] },
+           { ['O1',  true], ['O2', false] },
+           { ['O1',  true], ['O2',  true] }
+         },
+         "Error: poss_o_states is incorrect.");
+  print('[ok] poss_o_states');
+};
+test_poss_o_states();
+
+test_possible_fms := procedure() {
+  d := decision_algorithm.new();
+  d.o := { 'O' };
+  d.m := { 'M_1', 'M_2' };
+  d.m2 := { 'M2_1', 'M2_2' };
+  d.r := { [var, tf()] : var in d.o + d.m + d.m2 };
+  // d.r := { [var, tf()] : var in d.o + d.m };
+  ds := decision_algorithm.new();
+  ds.o := { 'O' };
+  ds.m := { 'ds.M_1', 'ds.M_2' };
+  ds.m2 := { 'ds.M2_1', 'ds.M2_2' };
+  ds.r := { [var, tf()] : var in ds.o + ds.m + ds.m2 };
+  // ds.r := { [var, tf()] : var in ds.o + ds.m };
+  p_fms := [fm : fm in d.possible_fms(ds)]; 
+  print(p_fms);
+  // print('[.?] possible_fms');
+};
+// test_possible_fms();
+test_apply_fm_m := procedure() { test_possible_fms(); };
+test_fm_commutes := procedure() { test_possible_fms(); };
+
+test_force_list := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'] };
+  d.cp := { [['B', 'A'], 'P(B|A)'] };
+  assert(d.force_list('P(A)'  ) == ['A',  om] &&
+         d.force_list('P(B|A)') == ['B', 'A'],
+         "Error: force_list  is incorrect.");
+  print('[ok] force_list ');
+};
+test_force_list();
+
+test_p_i_sim := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'] };
+  d.r := { ['P(A)', {0, 0.25, 0.75, 1}] };
+  ds1 := { ['P(A)', 0.25] };
+  ds2 := { ['P(A)', 0] };
+  assert(abs(d.p_i_sim(ds1, ds2, 'P(A)') - 2 / 3) < 0.01,
+         "Error: p_i_sim is incorrect.");
+  print('[ok] p_i_sim');
+};
+test_p_i_sim();
+
+test_id_expr := procedure() {
+  d := decision_algorithm.new();
+  d.i := {'P(I)'};
+  d.p := {['A', 'P(A)'], ['I', 'P(I)'] };
+  assert(d.id_expr('A') == 'A' && 
+         d.id_expr('I') == At_t('I', -1) && 
+         d.id_expr(At_t('I', -1)) == At_t('I', -2),
+         "Error: id_expr is incorrect.");
+  print('[ok] id_expr');
+
+  d.p := d.p + { [At_t('I', -1), 'P(I_-1)'], 
+                 [At_t('I', -2), 'P(I_-2)'] };
+  assert(d.id_var('P(I)')    == 'P(I_-1)' &&
+         d.id_var('P(I_-1)') == 'P(I_-2)',
+         "Error: id_var is incorrect.");
+  print('[ok] id_var');
+};
+test_id_expr();
+test_id_var := procedure() { test_id_expr(); };
+
+test_poss_i_events := procedure() {
+  d := decision_algorithm.new();
+  d.i := { 'P(I)', 'P(I2)' };
+  d.r := { ['P(I)', {0,1}], ['P(I2)', {0,1}] };
+  assert(d.poss_i_events() == {
+           {["P(I)", 0]}, {["P(I)", 1]},  
+           {["P(I2)", 0]}, {["P(I2)", 1]},
+           {["P(I)", 0], ["P(I2)", 0]}, 
+           {["P(I)", 0], ["P(I2)", 1]}, 
+           {["P(I)", 1], ["P(I2)", 0]}, 
+           {["P(I)", 1], ["P(I2)", 1]}
+         }, "Error: poss_i_events is incorrect.");
+  print('[ok] poss_i_events');
+};
+test_poss_i_events();
+
+test_e_vars := procedure() {
+  d := decision_algorithm.new();
+  d.n := [{ ['e', {['A','E_n1(A)']}], ['m2', {'M2_n1'}], ['o', {'O_n1'}] },
+          { ['e', {['B','E_n2(B)']}], ['m2', {'M2_n2'}], ['o', {'O_n2'}] } ];
+  assert(d.e_vars() == { 'E_n1(A)', 'E_n2(B)' },
+         "Error: e_vars  is incorrect.");
+  print('[ok] e_vars ');
+};
+test_e_vars();
+
+test_poss_ue_events := procedure() {
+  d := decision_algorithm.new();
+  d.n := [{ ['e', {['A','E']}], ['m2', {'M2'}], ['o', {'O'}] }];
+  d.u := { ['B', 'U'] };
+  d.r := { ['E', {0,1}], ['U', {0,1}] };
+  assert(d.poss_ue_events() == {
+           {["E", 0]}, {["E", 0], ["U", 0]}, {["E", 0], ["U", 1]}, {["E", 1]}, 
+           {["E", 1], ["U", 0]}, {["E", 1], ["U", 1]}, {["U", 0]}, {["U", 1]}
+         }, "Error: poss_ue_events is incorrect.");
+  print('[ok] poss_ue_events');
+};
+test_poss_ue_events();
+
+test_poss_p_i_events := procedure() {
+  d := decision_algorithm.new();
+  d.p := { ['A', 'P(A)'], ['B', 'P(B)'] };
+  d.r := { ['P(A)', {0,1}], ['P(B)', {0,1}] };
+  assert(d.poss_p_i_events() == { ["P(A)", 0], ["P(A)", 1], ["P(B)", 0], ["P(B)", 1] },
+         "Error: poss_p_i_events is incorrect.");
+  print('[ok] poss_p_i_events');
+};
+test_poss_p_i_events();
+
+test_poss_rx_states := procedure() {
+  d := decision_algorithm.new();
+  d.n := [{ ['o', {'O_n1'}] }, { ['o', {'O_n2'}] }];
+  d.r := { ['O_n1', tf()], ['O_n2', tf()] };
+  assert(d.poss_rx_states() == {
+           {["O_n1", false], ["O_n2", false]}, 
+           {["O_n1", false], ["O_n2",  true]}, 
+           {["O_n1",  true], ["O_n2", false]}, 
+           {["O_n1",  true], ["O_n2",  true]} 
+         }, "Error: poss_rx_states is incorrect.");
+  print('[ok] poss_rx_states');
+};
+test_poss_rx_states();
+
+test_poss_rxs := procedure() {
+  d := decision_algorithm.new();
+  d.n := [{ ['o', {'O_n1_1', 'O_n1_2'}] }, { ['o', {'O_n2'}] } ];
+  d.r := { [no_var, tf()] : no_var in {'O_n1_1', 'O_n1_2', 'O_n2'} };
+  assert(d.poss_rxs() == {
+           {["O_n1_1", false], ["O_n1_2", false]}, 
+           {["O_n1_1", false], ["O_n1_2",  true]}, 
+           {["O_n1_1",  true], ["O_n1_2", false]}, 
+           {["O_n1_1",  true], ["O_n1_2",  true]}, 
+           {["O_n2", false]}, 
+           {["O_n2",  true]}
+         }, "Error: poss_rxs is incorrect.");
+  print('[ok] poss_rxs');
+};
+test_poss_rxs();
+
+/*
+test_n_disj := procedure() {
+  d := decision_algorithm.new();
+  b := causal_markov_model.new();
+  b.u := { 'U1' };
+  b.r := { ['U1', tf()] };
+  be := { ['U1', true] };
+  not_be := { ['U1', false] };
+  w := b;
+  d.cached_ref := { [be, { be, not_be }] };
+  assert(d.n_disj(w, b, be) == 2,
+         "Error: n_disj is incorrect.");
+  print('[ok] n_disj');
+
+  assert(d.n_ev_disj(w, b, not_be, be) == 1,
+         "Error: n_ev_disj is incorrect.");
+  print('[ok] n_ev_disj');
+
+  assert(d.spec(w, b, not_be, be) == 1/2,
+         "Error: spec is incorrect.");
+  print('[ok] spec');
+};
+test_n_disj();
+test_n_ev_disj := procedure() { test_n_disj(); };
+test_spec := procedure() { test_spec(); };
+*/
+
+test_ltr_up_to := procedure() {
+  assert(da().ltr_up_to('A', 3) == { 'A_1', 'A_2', 'A_3' },
+         "Error: ltr_up_to is incorrect.");
+  print('[ok] ltr_up_to');
+};
+test_ltr_up_to();
+
+test_vars_up_to := procedure() {
+  assert(da().vars_up_to({ 'A', 'B' }, 2) == 
+           { 'A_1', 'A_2', 'B_1', 'B_2' },
+         "Error: vars_up_to is incorrect.");
+  print('[ok] vars_up_to');
+};
+test_vars_up_to();
+
+test_expr_to_ltr_var := procedure() {
+  assert(da().expr_to_ltr_var(Implies('A', 'B'), 'U') == 'U(Implies(A, B))',
+         "Error: expr_to_ltr_var is incorrect.");
+  print('[ok] expr_to_ltr_var');
+};
+test_expr_to_ltr_var();
+
+test_poss_r_z  := procedure() {
+  poss_z_vals := { { j : j in [1..x] } : x in [1..3] };
+  assert(da().poss_r_z(poss_z_vals, da().ltr_up_to('A', 2)) == {
+           {["A_1", {1}],       ["A_2", {1}]}, 
+           {["A_1", {1}],       ["A_2", {1, 2}]},   
+           {["A_1", {1}],       ["A_2", {1, 2, 3}]}, 
+           {["A_1", {1, 2}],    ["A_2", {1}]}, 
+           {["A_1", {1, 2}],    ["A_2", {1, 2}]}, 
+           {["A_1", {1, 2}],    ["A_2", {1, 2, 3}]}, 
+           {["A_1", {1, 2, 3}], ["A_2", {1}]}, 
+           {["A_1", {1, 2, 3}], ["A_2", {1, 2}]}, 
+           {["A_1", {1, 2, 3}], ["A_2", {1, 2, 3}]}},
+         "Error: poss_r_z is incorrect.");
+  print('[ok] poss_r_z ');
+};
+test_poss_r_z();
+
+test_poss_r_ue := procedure() {
+  u := { ['A', 'U(A)'], ['B', 'U(B)'] };
+  poss_ue_vals := pow({ j : j in [1..2**2] }) - {{}};
+  assert({ {["U(A)", {1, 2, 4}], ["U(B)", {1, 2, 4}]},
+           {["U(A)", {2, 3, 4}], ["U(B)", {2, 3, 4}]} 
+         } < da().poss_r_ue(poss_ue_vals, u),
+         "Error: poss_r_ue is incorrect.");
+  print('[ok] poss_r_ue');
+};
+test_poss_r_ue();

@@ -1,0 +1,129 @@
+print("\nTesting Causal Markov Model");
+print(  "===========================");
+
+cmm1 := cachedProcedure() {
+  cmm := causal_markov_model.new();
+  cmm.n := 3;
+  cmm.u := { 'U' };    
+  cmm.v := { 'V' };    
+  cmm.r := { ['U', tf()], ['V', tf()] };
+  cmm.f := { // eg v_t2 = U_t1 xor V_t1
+    ['V', { [{ ['U', false], ['V', false] }, false], 
+            [{ ['U', false], ['V',  true] },  true], 
+            [{ ['U',  true], ['V', false] },  true], 
+            [{ ['U',  true], ['V',  true] }, false]
+          }] 
+  };
+  cmm.a := { 
+    {['U_t1',  true], ['V_t1', false]},
+    {['U_t2',  true], ['V_t2',  true]},
+    {['U_t3', false], ['V_t3',  true]}
+  };
+  return cmm;
+};
+
+test_cm_u := procedure() {
+  assert(cmm1().cm_u() == { 'U_t1', 'U_t2', 'U_t3', 'V_t1' },
+         "Error: cm_u is incorrect.");
+  print('[ok] cm_u');
+};
+test_cm_u();
+
+test_cm_v := procedure() { 
+  assert(cmm1().cm_v() == { 'V_t2', 'V_t3' },
+         "Error: cm_v is incorrect.");
+  print('[ok] cm_v');
+};
+test_cm_v();
+
+test_cm_r := procedure() {
+  assert(cmm1().cm_r() == { ['U_t1', tf()], ['U_t2', tf()], ['U_t3', tf()], 
+                            ['V_t1', tf()], ['V_t2', tf()], ['V_t3', tf()] },
+         "Error: is incorrect.");
+  print('[ok] cm_r');
+};
+test_cm_r();
+
+test_cm_f := procedure() {
+  assert( { [ { ["U_t1", false], ["U_t2", false], ["U_t3", false], 
+                ["V_t1", false],                  ["V_t3", false]  }, false], 
+            [ { ["U_t1", false], ["U_t2", false], ["U_t3", false], 
+                ["V_t1", false],                  ["V_t3",  true]  }, false] 
+          } < cmm1().cm_f()['V_t2'],
+          "Error: cm_f is incorrect.");
+  print('[ok] cm_f');
+};
+test_cm_f();
+
+test_poss_states := procedure() {
+  assert(cmm1().poss_states() == {
+           { ["U", false], ["V", false] }, 
+           { ["U", false], ["V",  true] }, 
+           { ["U",  true], ["V", false] }, 
+           { ["U",  true], ["V",  true] }
+         },
+         "Error: poss_states is incorrect.");
+  print('[ok] poss_states');
+};
+test_poss_states();
+
+test_poss_events := procedure() {
+  assert(cmm1().poss_events() == { {}, 
+           {["U", false]}, {["U", true]}, {["V", false]}, {["V", true]},
+           {["U", false], ["V", false]}, 
+           {["U", false], ["V",  true]}, 
+           {["U",  true], ["V", false]}, 
+           {["U",  true], ["V",  true]}
+         },
+         "Error: poss_events is incorrect.");
+  print('[ok] poss_events');
+};
+test_poss_events();
+
+test_actual_events := procedure() {
+  assert(// test a random event
+         { ["U_t2", true], ["U_t3", false], ["V_t1", false], ["V_t2", true] 
+         } in cmm1().actual_events(),
+         "Error: actual_events is incorrect.");
+  print('[ok] actual_events');
+  print('[ok] actual_state');
+};
+test_actual_events();
+test_actual_state := procedure() { test_actual_state(); };
+
+test_actual_sync_events := procedure() {
+  assert(// test some random events
+         !({ ["U_t2", true], ["U_t3", false], ["V_t1", false], ["V_t2", true] 
+           } in cmm1().actual_sync_events()) &&
+         { {['U_t2', true]}, {['U_t3',false], ['V_t3',true]} 
+           } < cmm1().actual_sync_events() && 
+         !({['U_t1', false]} in cmm1().actual_sync_events()),
+         "Error: actual_sync_events is incorrect.");
+  print('[ok] actual_sync_events');
+};
+test_actual_sync_events();
+
+test_response := procedure() {
+  assert(cmm1().response({'V'}, {['U', true], ['V', false]})['V'] == true &&
+         cmm1().response({'V'}, {['U', true], ['V',  true]})['V'] == false, 
+         "Error: response is incorrect.");
+  print('[ok] response');
+};
+test_response();
+
+test_t_to_str := procedure() {
+  assert(eval(cmm1().t_to_str()) == [
+           // tt
+           { [{["U", false], ["V", false]}, {["V", false]}], 
+             [{["U", false], ["V",  true]}, {["V",  true]}], 
+             [{["U",  true], ["V", false]}, {["V",  true]}], 
+             [{["U",  true], ["V",  true]}, {["V", false]}] }, 
+           3, // n
+           {"U"}, 
+           {"V"}, 
+           {["U", {false, true}], ["V", {false, true}]} // r
+         ],
+         "Error: t_to_str is incorrect.");
+  print('[ok] t_to_str');
+};
+test_t_to_str();
