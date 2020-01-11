@@ -8,44 +8,50 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
              e.g. { 'P(I_1)', 'P(I_2)', 'P(I_3)' } 
              i.e. the agent's sense data. 
              Generally, p should include it, e.g. { ['I_1', 'P(I_1)'], ... }
- 	Technical note: There's some abuse of notation here. Each string like 'I_1' 
-  can depending on context be treated as:
-		i) the name of a decision algorithm variable, e.g. as parents() of other 
-       variables. Assignments of value to this variable would be a subjective 
-       probability 0-1. That would form a local/partial decision state, which 
-       could get mapped by an implementation functor f() from a brain state.
-		ii) an individual constant term. A predicate expression in the domain of p 
-        that has this string as an argument would be the prototypical context 
-        illustrating this usage. Semantically, these would refer to the brain 
-        events that implement them.  
-		iii) a couple possibilities for this last option: 
+ 	Technical footnote: There's some abuse of notation here. Each string like 
+	'I_1' can depending on context be treated as:
+		i) an individual constant term / object. A predicate expression in the 
+       domain of p that has this string as an argument would be the 
+       prototypical context illustrating this usage. Semantically, these would 
+       refer to the brain events that implement them.  
+		ii) a couple possibilities for this option: 
 			a) a 0-ary predicate or sentential expression. It takes no inputs and 
          forms a proposition on its own. 
-			b) a 1-place predicate that takes the constant in ii and simply asserts 
-         its existence, perhaps loosely inspired by Free Logic's E!. 
-		  In either case, its truth-maker/referent would be the same as option ii's.
+			b) shorthand for a 1-place predicate that takes the constant in ii and 
+         simply asserts its existence, perhaps loosely inspired by Free Logic's
+         E!. 
+		  In either case, its truth-maker/referent would be the same as option i's.
       Treating the string as a sentential expression or forming an expression 
-      with it as the argument of a connective would indicate this usage.  */
+      with it as the argument of a connective would indicate this usage.  
+    All of these possibilities are expressions, or terms that could figure in an
+    expression, i.e. the sort of thing that would be in the domain of p. They 
+    should be distinguished from the set i, which would be a subset of the range
+    of p. These would be names of a decision algorithm variable, e.g. parents() 
+    of other variables. Assignments of value to this variable would be a 
+    subjective probability 0-1. That would form a local/partial decision state,
+    which could get mapped to by a local/partial implementation functor lf() 
+    from a local brain state.  */
 
   o := o; /* Set of output variables
              e.g. { 'O_1', 'O_2', 'O_3' }
              i.e. the agent's motor output. 
-             See also the technical note for i. */
+             See also the technical note for i.  */
   
   /* Function from logical formulas (setlx functors/strings/terms) to 
        probability variables
      e.g. { ['A', 'P(A)'], ['B', 'P(B)'], [And('A', 'B'), 'P(A & B)'], 
-            [BoxArrow('A', 'B'), 'P(A []-> B)'] } */
+            [BoxArrow('A', 'B'), 'P(A []-> B)'] }  */
   p := p; 
 
   /* Function from ordered pairs [x, y] to conditional probability variables
      e.g. { [[x, y], 'P(x|y)'], ... } 
-     or more concretely: { [['C', And('A', 'B')], 'P(C|A,B)'], ... } */
+     or more concretely: { [['C', And('A', 'B')], 'P(C|A,B)'], ... }  */
   cp := cp;   
 
   /* Function from logical formulas to utility variables 
-     e.g. { ['A', 'U(A)'], ... } 
-     u has the same structure as p above */
+       e.g. { ['A', 'U(A)'], ... } 
+     u has the same structure as p above.
+     See also accepted norms / higher-order utilities a few lines below. */
   u := u;     
 
   /* Set of memory variables 
@@ -95,6 +101,21 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
      actions rather than normative judgments or prescriptions.
 
 		 See http://www.metaethical.ai/norm_descriptivism.pdf for more.
+
+     One might object that introducing these higher-order utility functions
+     invalidates what was supposed to be the utility function of the decision
+     algorithm. Since a utility function is supposed to encompass any factors   
+     explaining behavior, wouldn't it already include these allegedly
+     higher-order factors? Strictly speaking, that may be correct, but that kind
+     of utility function is not the most useful for our purposes.
+     
+     It may be better to think in terms of modeling a decision algorithm as a
+     society of subagents. The first-order utility function then is the utility
+     function of the subagent whose outputs are the decision algorithm's actions
+     rather than prescriptions that directly influence other subagents' 
+     utilities. When we speak of the utility function of the decision algorithm,
+     this should just be understood as shorthand for this first-order utility 
+     function.
 	*/
   n := n; 
 
@@ -288,7 +309,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
      matter whether one goes from a) a brain state to the brain state it causes 
      and then to the decision state f maps that brain state to or b) first from 
 		 the same original brain state to the decision state f says it implements 
-		 and then to the next decision state this decision algorithm transitions to. 
+		 and then to the next decision state this decision algorithm transitions to.
      Either way, you would end up at the same final decision state. 
 	*/
   commutes := procedure(pf, b) {
@@ -310,6 +331,25 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
        ], s() + o)
      );
   };
+	/* Technical footnote: The above is almost true, but causal response and 
+		 decision state transitions don't quite take brain states to entire brain 
+		 states or entire decision states to entire decision states. The causal 
+		 response only specifies the endogenous variables on the next time step. So 
+		 in order to have a full brain state for pf, we just fill in the exogenous 
+		 variables with their first values, only to drop those values anyway after
+		 obtaining the decision state it implements. Similarly, with the decision 
+		 state, the previous outputs are irrelevant to the state transition to the 
+		 next decision state so we drop those before finding the next decision 
+		 state which is almost full with the exception of the (exogenous) inputs.
+
+		 The code should be correct and this only affects the intuitive explanation.
+		 If we had used lf which is defined below, I think we could truly say it is
+		 a functor. Since it maps partial brain states to (sets of) partial 
+		 decision states, it wouldn't need to make the aforementioned adjustments
+		 which prevent it from quite being a functor. However, lf is defined in 
+		 terms of f, so we'd still need to understand f first and for now, 
+	   almost-a-functor might have to do.
+	*/
 
   /* Takes a decision state assigning values to i + s() + o and returns a
      function assigning values to just s() + o  */
@@ -617,13 +657,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
           case fct(expr) == 'Or' :
             return rr(a1, arr) + rr(a2, arr);
           case fct(expr) == 'Not' :
-            if (isSet(a1)) { // Set of states
-              return w.cm().poss_states() - a1;                
-            } else { 
-              // String or functor, i.e. predicate or relation application
-              // [~A] = [~[A]]
-              return rr(Not(rr(a1, arr)), arr);
-            }
+            return w.cm().poss_states() - rr(a1, arr);
           case fct(expr) == 'Implies' :
             return rr( Or(Not(a1), a2), arr );
           case fct(expr) == 'Forall' :
@@ -639,13 +673,13 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
             if (isSet(a1)) {
               ant := a1;
             } else {
-              ant := rr(a1, arr); 
+              ant := states2events(rr(a1, arr));
             }
             // Consequent
             if (isSet(a2)) {
               cons := a2;
             } else {
-              cons := rr(a2, arr); 
+              cons := states2events(rr(a2, arr));
             }
             if (#ant > 1) { // Antecedent has disjuncts.
               // This or that causes the effect if this does or that does.
@@ -655,8 +689,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
                 // A thing causes this or that if it causes this or causes that.
                 return +/ { rr(BoxArrow(ant, disjunct), arr) : disjunct in cons };
               } else if (#cons == 1) {
-                if ( w.cm().response( domain(first(cons)), first(ant) ) == 
-                     first(cons) ) {
+                if ( w.cm().response( domain(cons[1]), ant[1] ) == cons[1] ) {
                   /* If this aspect of the causal model is true, it's true in
                      all states. Fire causes smoke can be true even in a     
                      possible world where all fire is prevented. A more 
@@ -1086,7 +1119,8 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
   };
 
   /* Takes a prob state and returns a list of coherent probability 
-     distributions sorted by how close they are p_states, closer ones first. */
+     distributions sorted by how close they are to p_states, closer ones first.
+  */
   sorted_rat := procedure(p_states) {
     return sort_list( [ coh_p + coh_cp : [coh_p, coh_cp] in coh_cm_ps() ],
       /* A procedure measuring which of two probability states is closer to 
@@ -1224,7 +1258,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
   
   /* Takes two functions mapping p & cp vars to probabilities and computes
      the difference. See Staffel, Julia. Measuring the Overall Incoherence of 
-     Credence Functions. Synthese, 2015. p. 18. DOI 10.1007/s11229-014-0640-x 
+     Credence Functions. Synthese, 2015. DOI 10.1007/s11229-014-0640-x 
 
      Technical Note: Takes p and cp (which should just be the usual this.p and 
      this.cp) but needs to be passed explicitly because of a setlx bug: The 
@@ -1448,13 +1482,14 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
     d_star := poss_d_stars[1];
 
     delta_incoh := ( d_star.incoherence(b) - incoherence(b) ) / incoherence(b); 
+    delta_irrat := ( d_star.instr_irrat(b) - instr_irrat(b) ) / instr_irrat(b); 
     delta_compl := (k(d_star.df_to_str(b)) - k(df_to_str(b))) / k(df_to_str(b));
-    /* More incoherent -> more ambitious
+    /* More incoherent and irrational -> more ambitious
          because it's like less of real Decision Algorithmic stuff left in h1
        Larger complexity -> less ambitious 
          because there's more Decision Algorithmic stuff left in hs_1 & not in d
          but maybe replace complexity with more like raw size? #states?  */
-    return delta_incoh - delta_compl;
+    return delta_incoh + delta_irrat - delta_compl;
   };
 
     d_star_sim := procedure(self, b, hs_k, d_star_k) {
@@ -1638,18 +1673,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
          * Compute infinitely but in a way that asymptotes? 
          * Keep computing until it converges, with minimum time? 
              If it never converges? */
-    voter_wts := {};
-    t_i := 1;
-    bs1 := drop_time(b.a[b.n]);
-    while (t_i <= t_z) {
-      bmps := bs_msr_paths(w, b, bs1, t_i);
-      voter_wts := voter_wts + { 
-        [ additive_to_ordinal(f(b)[first(last(bmp))], 0), // voter util func
-          time_wt(t_i) * voter_weight(w, b, bmp) ]        // voter weight
-        : bmp in last(bmps) 
-      };
-      t_i := t_i + 1;
-    }
+
     // Poss social choice utility functions
     psc_u_dom := domain(p) + domain(u);
     psc_u_rng := r[first(range(u))] + { om };
@@ -1657,10 +1681,25 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
                         : expr in psc_u_dom });
     psc_us := { { [expr, r_i] : [expr, r_i] in psc_u | r_i != om } 
                 : psc_u in psc_us }; // filter out om
+    state_space := exprs_to_state_space(psc_u_dom);
+
+    voter_wts := {};
+    t_i := 1;
+    bs1 := drop_time(b.a[b.n]);
+    while (t_i <= t_z) {
+      bmps := bs_msr_paths(w, b, bs1, t_i);
+      voter_wts := voter_wts + { 
+        [ // voter util func
+          additive_to_ordinal( f(b)[first(last(bmp))], 0, state_space), 
+          time_wt(t_i) * voter_weight(w, b, bmp) ] // voter weight
+        : bmp in last(bmps) 
+      };
+      t_i := t_i + 1;
+    }
     return sort_set(psc_us, 
                     procedure(psc_u1, psc_u2) { 
-                      return rat_psc_dist(voter_wts, psc_u1) < 
-                             rat_psc_dist(voter_wts, psc_u2); 
+                      return rat_psc_dist(voter_wts, psc_u1, state_space) < 
+                             rat_psc_dist(voter_wts, psc_u2, state_space); 
                     })[1];
   };
 
@@ -1681,8 +1720,9 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
     };
 
     // Possible Social Choice for Rationality (as opposed to in optimal_rxs)
-    rat_psc_dist := procedure(voter_wts, psc_u) { 
-			ord_u := card_u_to_ord_u( add_u_to_card_u(psc_u) );
+    rat_psc_dist := procedure(voter_wts, psc_u, state_space) { 
+			card_u := add_u_to_card_u(psc_u, state_space);
+			ord_u := card_u_to_ord_u( card_u, domain(card_u), r[first(p)] );
 			return +/ { voter_wts[voter] * ord_u_dist(voter, ord_u) ** 2
       						: voter in domain(voter_wts) };
     };
@@ -1713,16 +1753,18 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
     return 0.5 * min(opts) + 0.5 * avg(opts);
   }; 
 
-    optimality := procedure(w, b, ds, ds2, t_i) {
-      ord_us := { additive_to_ordinal(ds, j) : j in [1..#n] };
+    ue_state_space := procedure() {
+      base_exprs := +/ { ue_base_exprs(j) : j in [1..#n] };
+      return choices({ { [subform, true], [subform, false] } 
+                       : subform in base_exprs });
+    };
 
+    optimality := procedure(w, b, ds, ds2, t_i) {
       /* Social choice to balance multiple synchronic utility functions if
          they conflict.  */
-      psc_base_exprs := +/ { ue_base_exprs(j) : j in [1..#n] };
-      psc_state_space := choices({ {[subform, true], [subform, false]} 
-                                   : subform in psc_base_exprs });
+      ord_us := { additive_to_ordinal(ds, j, ue_state_space()) : j in [1..#n] };
       sync_psc_us := choices({ { [state, r_i] : r_i in r[first(range(u))] } 
-                               : state in psc_state_space });
+                               : state in ue_state_space() });
       sc_u := sort_set(psc_us, 
                        procedure(psc_u1, psc_u2) { 
                          return sync_psc_dist(ord_us, psc_u1) < 
@@ -1751,7 +1793,8 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
     }; // end optimality
 
       sync_psc_dist := procedure(ord_us, sync_psc_u) { 
-				ord_psc_u := card_u_to_ord_u(sync_psc_u);
+				ord_psc_u := card_u_to_ord_u(sync_psc_u, domain(sync_psc_u), 
+                                                 r[first(p)] );
         return +/ { ord_u_dist(ord_u, ord_psc_u) ** 2 : ord_u in ord_us };
       };
 
@@ -2066,9 +2109,11 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
       rxd_n := [ { [e_i, rxd[e_i]] : e_i in n_i['e'] } : n_i in n ];
       rxd_e := [ rxd_u ] + rxd_n;
       // The prescribed util / eval change
-      ord_rxd_e := [ additive_to_ordinal(rxd_e[j], j) : j in [1..#rxd_e] ];
+      ord_rxd_e := [ additive_to_ordinal(rxd_e[j], j, ue_state_space()) 
+                     : j in [1..#rxd_e] ];
       // The actual change in ds3
-      ord_e := [ additive_to_ordinal(e_func(ds3, j), j) : j in [1..#rxd_e] ];
+      ord_e := [ additive_to_ordinal(e_func(ds3, j), j, ue_state_space()) 
+                 : j in [1..#rxd_e] ];
   
       e_dists := [ ord_u_dist(ord_e[j], ord_rxd_e[j]) : j in [1..#ord_e] ];
 
@@ -2120,8 +2165,9 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
      variables to numbers (utilities), and an index j and returns a set of 
      SuccEq (succeeds or equals) setlx functors. If j is 0, then u is converted
 		 to ordinal, otherwise, n[j]['e'] is. */
-  additive_to_ordinal := procedure(ds, j) {
-		return add_u_to_card_u(e_func(ds,j));
+  additive_to_ordinal := procedure(ds, j, state_space) {
+		card_u := add_u_to_card_u(e_func(ds,j), state_space);
+		return card_u_to_ord_u( card_u, domain(card_u), r[first(p)] );
   };
 
   /* Brain-State Measure Paths 

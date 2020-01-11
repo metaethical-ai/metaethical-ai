@@ -118,6 +118,7 @@ all_atomic_formulas := procedure(exprs) {
 };
 
 atomic_formulas := procedure(expr) {
+	if (dev) { print('expr ' + expr); }
   return atomic_forms(expr) - parse_vars(expr);    
 };
 
@@ -131,6 +132,7 @@ atomic_forms := procedure(expr) {
 };
 
 expr_to_events := procedure(expr, dom) { 
+	if (dev) { print('dom: ' + dom); }
   state_space := exprs_to_state_space(dom);
 	if (dev) { print('st sp: ' + state_space); }
   expand := procedure(events) {
@@ -235,7 +237,8 @@ iter_fct := procedure(fct, l) {
 /* Takes a function f and returns its inverse. To avoid having to return a set 
 	 or list, it just returns the first preimage that f maps to the img. */
 inv := procedure(f) {
-	return { [img, ([ pre : pre in domain(f) | f[pre] == img])[1] ] : img in range(f) };
+	return { [img, ([ pre : pre in domain(f) | f[pre] == img])[1] ] 
+           : img in range(f) };
 };
 
 /* Takes a setlx functor and returns its arity */
@@ -353,6 +356,23 @@ compatible_complete_states := cachedProcedure(ps, cs) {
 compat_compl_sts := procedure(ps, cs) { // alias 
   return compatible_complete_states(ps, cs); 
 }; 
+
+/* Takes a set of complete states and returns a set of events whose compatible
+   complete states would sum to to the set of complete states. */
+states2events := procedure(css) {
+  vars := domain(css[1]);
+  /* Variables are unneeded when for all complete states, the states with the 
+     values of all the other variables remaining the same but with the 
+     candidate variable being assigned true and false are both in the set of
+     complete states.  */
+  unneeded := { v : v in vars 
+                  | forall( cs in css |
+                      restrict_domain(cs, vars - v) + {[v,  true]}  in css &&
+                      restrict_domain(cs, vars - v) + {[v, false]} in css
+                    )
+  };
+  return { restrict_domain(cs, vars - unneeded) : cs in css };
+};
 
 proc2func := procedure(p, dom) {
   return { [d, p(d)] : d in dom };
@@ -588,26 +608,32 @@ states_u := procedure(u) {
 };
 
 /* Cardinal Utility Function to Ordinal Utility Function */
-card_u_to_ord_u := procedure(card_u, state_space) {
-	compare_sts := procedure(st1, st2) {
-		if (card_u[st1] >= card_u[st2]) {
-			return SuccEq(st1, st2); // Succeeds or equals
-		} else {
-			return SuccEq(st2, st1);
-		}
-	};
-	return { compare_sts(st1, st2) : [st1,st2] in state_space >< state_space };
+card_u_to_ord_u := procedure(card_u, state_space, probs) {
+  poss_lotteries := choices({ { [state, prob] : prob in probs } 
+                              : state in state_space });
+  lotteries := { lottery : lottery in poss_lotteries 
+                         | +/ [ prob : [state, prob] in lottery ] == 1 };
+  compare_lots := procedure(lot1, lot2) {
+    util_of_lot := procedure(lot) {
+      return +/ { card_u[state] * prob : [state, prob] in lot };
+    };
+    if (util_of_lot(lot1) >= util_of_lot(lot2)) {
+      return SuccEq(lot1, lot2); // Succeeds or equals
+    } else {
+      return SuccEq(lot2, lot1);
+    }
+  };
+	return { compare_lots(lot1, lot2) : [lot1, lot2] in lotteries >< lotteries };
 };
 
 /* Additive Utility Function to Cardinal Utility Function: 
    Takes a utility function expressed as { [expr, val], ... } where the 
-   utility of a state is the sum of all its true exprs' val.
+   utility of a state is the sum of all its true exprs' val and a state space.
    Returns a cardinal utility function assigning values to states rather than
    expressions.
 */
-add_u_to_card_u := procedure(add_u) {
-  atoms := +/ { atomic_formulas(expr) : expr in domain(add_u) };
-  state_space := exprs_to_state_space(domain(add_u));
+add_u_to_card_u := procedure(add_u, state_space) {
+	atoms := +/ { domain(state) : state in state_space };
 	util := procedure(state) {
 		sum := +/ { val : [expr, val] in add_u | is_true_in(expr, state, atoms) };
 		if (sum == om) { sum := 0; }
@@ -646,40 +672,36 @@ is_true_in := procedure(expr, state, dom) {
      strategic manipulation through insincere votes.
 */
 ord_u_dist := procedure(u1, u2) {
-	atom_us := atom_u(u1) + atom_u(u2);
-  state_space := exprs_to_state_space(atom_us);
+	lots := lots_of_u(u1) + lots_of_u(u2);
   sharpenings := procedure(u) {
-    poss_total_orders := permutations([s : s in state_space]);
+    poss_total_orders := permutations([lot : lot in lots]);
 		list_to_ord := procedure(l) {
 			if (l == []) {
 				return {}; 
 			} else {
-				return { Succ(l[1], s) : s in l[2..] } + list_to_ord(l[2..]);
+				return { Succ(l[1], lot) : lot in l[2..] } + list_to_ord(l[2..]);
 			}
 		};
 		ord_us := { list_to_ord(pto) : pto in poss_total_orders };
-		ext_u := atom_us - atom_u(u); // extending u vars
-		if (ext_u == {}) {
-			// return { u };
-			exts := {{}};
-		} else {
-			exts := choices({ {[atom,true], [atom,false]} : atom in ext_u });
-		}
+		// exts := lots - lots_of_u(u); // extending lotteries
 		return { 
 			ord_u : ord_u in ord_us 
 			| forall(pref in u // u: a1 >= a2 
 					| Succ(args(pref)[1], args(pref)[2]) in ord_u || // ord_u: a1 > a2
-						SuccEq(args(pref)[2], args(pref)[1]) in u || // u: a2 >= a1, ie ==
-						forall(ext in exts 
-							| Succ(args(pref)[1] + ext, args(pref)[2] + ext) in ord_u 
-									// a1 + z > a2 + z
-						) // end forall ext
+						SuccEq(args(pref)[2], args(pref)[1]) in u      // u: a2 >= a1, ie ==
 				) // end forall pref
 		}; // end return
 	}; // end sharpenings	
 	return hausdorff_dist( sharpenings(u1), 
 												 sharpenings(u2), 
 												 kendalls_tau_dist );
+};
+
+/* Takes an ordinal utility function, a set of Succ or SuccEq relations, and
+	 returns the lotteries that they range over.  */
+lots_of_u := procedure(ord_u) {
+	// { print(pref) : pref in u };
+	return +/ { { args(pref)[1], args(pref)[2] } : pref in ord_u };
 };
 
 /* p 56 of setlx tutorial */

@@ -56,18 +56,21 @@ metaethical_ai_u := procedure(w, bs) {
 	ext_rufs := { [b, d[b].ext_ruf(w,b)] : b in bs };	
 
 	state_space := w.cm().poss_states();
+  b := first(bs);
+  probs := b.r[first(b.p)];
 	// Possible social choice utility functions
 	psc_us := choices({ {[state, r_i] : r_i in [1..#state_space] } 
 											: state in state_space });
 	sc_u := sort_set(psc_us, procedure(psc_u1, psc_u2) { 
-												     return meai_psc_dist(psc_u1, ext_rufs) < 
-																		meai_psc_dist(psc_u2, ext_rufs); 
-											     })[1];
+										return meai_psc_dist(psc_u1, ext_rufs, state_space, probs) <
+													 meai_psc_dist(psc_u2, ext_rufs, state_space, probs); 
+								   })[1];
 	return sc_u;
 };
 
-	meai_psc_dist := procedure(psc_u, ext_rufs) { 
-		return +/ { ord_u_dist(card_u_to_ord_u(ext_ruf), card_u_to_ord_u(psc_u))**2 
+	meai_psc_dist := procedure(psc_u, ext_rufs, state_space, probs) { 
+		return +/ { ord_u_dist(card_u_to_ord_u(ext_ruf, state_space, probs), 
+                           card_u_to_ord_u(psc_u,   state_space, probs) ) ** 2 
 								: ext_ruf in ext_rufs };
 	};
 

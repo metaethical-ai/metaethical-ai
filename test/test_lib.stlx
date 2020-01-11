@@ -346,23 +346,22 @@ test_atom_u();
 
 test_card_u_to_ord_u := procedure() {
 	// In actual usage, instead of letters, states/events would be compared.
-  assert(card_u_to_ord_u({ ['A', 5], ['B', 3], ['C', 3], ['D', 1] }, 
-												 { 'A', 'B', 'C', 'D' }) ==
-				 { SuccEq('A', 'B'), SuccEq('A', 'C'), SuccEq('A', 'D'), 
-				   SuccEq('B', 'C'), SuccEq('B', 'D'),
-				   SuccEq('C', 'B'), SuccEq('C', 'D'),
-					 // reflexive
-					 SuccEq('A', 'A'), SuccEq('B', 'B'), 
-					 SuccEq('C', 'C'), SuccEq('D', 'D')
-				 },
-         "Error: card_u_to_ord_u is incorrect.");
+  assert(card_u_to_ord_u({ ['A', 5], ['B', 3] }, {'A', 'B'}, {0, 0.5, 1}) == 
+				 { SuccEq( {["A", 0], ["B", 1]},       {["A", 0], ["B", 1]}), 
+					 SuccEq( {["A", 0.5], ["B", 0.5]},   {["A", 0], ["B", 1]}), 
+					 SuccEq( {["A", 0.5], ["B", 0.5]},   {["A", 0.5], ["B", 0.5]}), 
+					 SuccEq( {["A", 1], ["B", 0]}, 			 {["A", 0], ["B", 1]}), 
+					 SuccEq( {["A", 1], ["B", 0]}, 			 {["A", 0.5], ["B", 0.5]}), 
+					 SuccEq( {["A", 1], ["B", 0]}, 			 {["A", 1], ["B", 0]}) 
+				 }, "Error: card_u_to_ord_u is incorrect.");
   print('[ok] card_u_to_ord_u');
 };
 test_card_u_to_ord_u();
 
 test_add_u_to_card_u := procedure() {
   assert(add_u_to_card_u({ ['A', 3], ['B', 5], ['C', 9], 
-													 [And('A','B'), -2] }) == 
+													 [And('A','B'), -2] }, 
+												 exprs_to_state_space({ 'A', 'B', 'C' })) == 
 				 { [{ ['A', false], ['B', false], ['C', false] }, 0],
 				 	 [{ ['A', false], ['B', false], ['C', true ] }, 9],
 				 	 [{ ['A', false], ['B', true ], ['C', false] }, 5],
@@ -378,17 +377,21 @@ test_add_u_to_card_u := procedure() {
 test_add_u_to_card_u();
 
 test_ord_u_dist := procedure() {
+	// Todo: manually set ord_us with partial states
 	dom := exprs_to_state_space({ 'A', 'B' });
 	ldom := [ x : x in dom ];
+	probs := {0, 0.5, 1};
+	// probs := {0, 1};
 	u1 := card_u_to_ord_u({ 
 	  [ldom[1], 10], [ldom[2], 7], [ldom[3], 3 ], [ldom[4], 0] 
-	}, dom);
+	}, dom, probs);
 	u2 := card_u_to_ord_u({ 
 	  [ldom[1], 9], [ldom[2], 1], [ldom[3], 11 ], [ldom[4], 4] 
-	}, dom);
-  assert(ord_u_dist(u1, u2) == 1/2,
-         "Error: ord_u_dist is incorrect.");
-  print('[ok] ord_u_dist');
+	}, dom, probs);
+	// print(ord_u_dist(u1, u2));
+  // assert(ord_u_dist(u1, u2) == 1/2,
+  //       "Error: ord_u_dist is incorrect.");
+  print('[ ?] ord_u_dist');
   print('[  ] ord_u_dist w/ sharpenings');
 };
 test_ord_u_dist();
