@@ -729,6 +729,10 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
       };
     };
 
+    norm_sq_err := procedure(w, b, ref_i) {
+      return sq_err(w, b, ref_i) / #actual_p_events(b);
+    };
+
     true_p := procedure(w, ref_i, b_event) {
       if (w.actual_state() in ref_i[b_event]) {
         return 1;
@@ -2274,7 +2278,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
     /* Function from a causal_model of a brain b and a set of decision 
        algorithm candidates to the decision algorithm that is the best 
        compression of the brain.  */
-    implemented_by := cachedProcedure(b, ds) {
+    implemented_by := cachedProcedure(w, b, ds) {
       if (ds == {}) {
         ds := decision_algorithm.all(b);
       }
@@ -2282,7 +2286,7 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
          i.e. prevents smuggling in higher-order norms within the n[j]['m2'] 
          variables. In future iterations, this might be softened.  */
 			ds := [d : d in ds | d.is_implemented_by(b) && d.is_simplest_version(b)]; 
-      ds := sort_list(ds, decision_algorithm.better_explanation(b));
+      ds := sort_list(ds, decision_algorithm.better_explanation(w, b));
       return ds[1];
     };
     
@@ -2412,15 +2416,16 @@ class decision_algorithm(i, o, p, cp, u, m, m2, n, r, t_s, t_o,
         return { da : da in das | da.is_valid() && #da.poss_states() <= z};
       };
 
-    better_explanation := cachedProcedure(b) {
+    better_explanation := cachedProcedure(w, b) {
       return procedure(d1, d2) {
-               return da().expl_score(b, d1) > da().expl_score(b, d2);
+               return da().expl_score(w, b, d1) > da().expl_score(w, b, d2);
              };
     };
 
-      expl_score := procedure(b, d_i) {
+      expl_score := procedure(w, b, d_i) {
         return d_i.ambitiousness(b) - d_i.complexity(b) 
-               - d_i.instr_irrat(b) - d_i.incoherence(b);
+               - d_i.instr_irrat(b) - d_i.incoherence(b) 
+               - d_i.norm_sq_err(w, b, d_i.ref(w, b)); 
       };
 
     simpler := cachedProcedure() {
